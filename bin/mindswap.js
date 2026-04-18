@@ -189,6 +189,7 @@ program
   .description('Full session narrative — task, decisions, conflicts, stats.')
   .option('--json', 'Output as JSON')
   .option('--stats', 'Include detailed statistics')
+  .option('--tag <tag>', 'Filter decisions by tag (e.g., --tag architecture)')
   .action(async (opts) => {
     try {
       await summary(process.cwd(), opts);

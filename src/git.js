@@ -2,9 +2,11 @@ const { execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
+const GIT_TIMEOUT = 15000; // 15s max for any git command
+
 function isGitRepo(projectRoot) {
   try {
-    execSync('git rev-parse --is-inside-work-tree', { cwd: projectRoot, stdio: 'pipe' });
+    execSync('git rev-parse --is-inside-work-tree', { cwd: projectRoot, stdio: 'pipe', timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -13,22 +15,31 @@ function isGitRepo(projectRoot) {
 
 function run(cmd, cwd) {
   try {
-    return execSync(cmd, { cwd, stdio: 'pipe', encoding: 'utf-8' }).trim();
+    return execSync(cmd, { cwd, stdio: 'pipe', encoding: 'utf-8', timeout: GIT_TIMEOUT }).trim();
   } catch {
     return '';
   }
 }
 
 function getCurrentBranch(projectRoot) {
-  return run('git branch --show-current', projectRoot) || 'unknown';
+  // Check for detached HEAD first
+  const branch = run('git branch --show-current', projectRoot);
+  if (branch) return branch;
+
+  // Detached HEAD — show the short commit hash
+  const head = run('git rev-parse --short HEAD', projectRoot);
+  if (head) return `HEAD detached at ${head}`;
+
+  return 'unknown';
 }
 
 function getRecentCommits(projectRoot, count = 5) {
   const raw = run(`git log --oneline -${count} --no-decorate`, projectRoot);
   if (!raw) return [];
   return raw.split('\n').map(line => {
-    const [hash, ...rest] = line.split(' ');
-    return { hash, message: rest.join(' ') };
+    const spaceIdx = line.indexOf(' ');
+    if (spaceIdx === -1) return { hash: line, message: '' };
+    return { hash: line.slice(0, spaceIdx), message: line.slice(spaceIdx + 1) };
   });
 }
 
@@ -57,11 +68,16 @@ function getUntrackedFiles(projectRoot) {
 }
 
 function getAllChangedFiles(projectRoot) {
-  return [
-    ...getModifiedFiles(projectRoot),
-    ...getStagedFiles(projectRoot),
-    ...getUntrackedFiles(projectRoot),
-  ];
+  // Deduplicate files that appear in both staged and modified
+  const seen = new Set();
+  const result = [];
+  for (const f of [...getStagedFiles(projectRoot), ...getModifiedFiles(projectRoot), ...getUntrackedFiles(projectRoot)]) {
+    if (!seen.has(f.file)) {
+      seen.add(f.file);
+      result.push(f);
+    }
+  }
+  return result;
 }
 
 function getDiffSummary(projectRoot) {

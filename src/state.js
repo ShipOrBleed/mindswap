@@ -85,7 +85,10 @@ function readState(projectRoot) {
     if (fs.existsSync(branchPath)) {
       try {
         return JSON.parse(fs.readFileSync(branchPath, 'utf-8'));
-      } catch {}
+      } catch (err) {
+        // Corrupt branch state — warn and fall through to main
+        try { process.stderr.write(`mindswap: corrupt branch state (${branch}), using main state\n`); } catch {}
+      }
     }
   }
 
@@ -93,7 +96,8 @@ function readState(projectRoot) {
   if (!fs.existsSync(mainStatePath)) return getDefaultState();
   try {
     return JSON.parse(fs.readFileSync(mainStatePath, 'utf-8'));
-  } catch {
+  } catch (err) {
+    try { process.stderr.write('mindswap: corrupt state.json, using defaults\n'); } catch {}
     return getDefaultState();
   }
 }
@@ -141,14 +145,15 @@ function deepMerge(target, source) {
 
 // ─── History ───
 
-let historyCounter = 0;
+function randomSuffix() {
+  return Math.random().toString(36).slice(2, 8);
+}
 
 function addToHistory(projectRoot, entry) {
   const dataDir = ensureDataDir(projectRoot);
   const historyDir = path.join(dataDir, HISTORY_DIR);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const suffix = String(historyCounter++).padStart(4, '0');
-  const filename = `checkpoint-${timestamp}-${suffix}.json`;
+  const filename = `checkpoint-${timestamp}-${randomSuffix()}.json`;
   fs.writeFileSync(
     path.join(historyDir, filename),
     JSON.stringify(entry, null, 2),

@@ -45,6 +45,13 @@ async function status(projectRoot, opts = {}) {
   const colorFn = statusColor[task.status] || chalk.white;
   console.log(chalk.dim('  Task:        ') + chalk.white(task.description || '(none)'));
   console.log(chalk.dim('  Status:      ') + colorFn(task.status));
+  // Stale task warning
+  if (task.started_at && task.status === 'in_progress') {
+    const ageHours = (Date.now() - new Date(task.started_at).getTime()) / 3600000;
+    if (ageHours > 72) {
+      console.log(chalk.dim('  ') + chalk.yellow(`⚠  Task started ${Math.floor(ageHours / 24)}d ago — still in progress?`));
+    }
+  }
   if (task.blocker) {
     console.log(chalk.dim('  Blocker:     ') + chalk.red(task.blocker));
   }

@@ -147,12 +147,12 @@ ${live.branch ? `- **Git branch**: ${live.branch}` : ''}
 `;
 
   if (live.changedFiles.length > 0) {
-    md += `\n## Files with uncommitted changes\n`;
+    md += `\n## Files with uncommitted changes (${live.changedFiles.length} total)\n`;
     for (const f of live.changedFiles.slice(0, 30)) {
       md += `- ${f.status}: ${f.file}\n`;
     }
     if (live.changedFiles.length > 30) {
-      md += `- ... and ${live.changedFiles.length - 30} more\n`;
+      md += `- ... and ${live.changedFiles.length - 30} more files\n`;
     }
   }
 

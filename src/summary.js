@@ -17,8 +17,11 @@ async function summary(projectRoot, opts = {}) {
   const task = state.current_task;
   const history = getHistory(projectRoot, 20);
 
-  // Gather data
-  const decisions = readDecisions(projectRoot);
+  // Gather data (optionally filter by tag)
+  let decisions = readDecisions(projectRoot);
+  if (opts.tag) {
+    decisions = decisions.filter(d => d.toLowerCase().includes(`[${opts.tag.toLowerCase()}]`));
+  }
   const commits = isGitRepo(projectRoot) ? getRecentCommits(projectRoot, 10) : [];
   const branch = isGitRepo(projectRoot) ? getCurrentBranch(projectRoot) : null;
   const changedFiles = isGitRepo(projectRoot) ? getAllChangedFiles(projectRoot) : [];

@@ -135,10 +135,13 @@ async function save(projectRoot, opts = {}) {
 function autoDetectTask(projectRoot) {
   // Try branch name first — often describes the feature
   const branch = getCurrentBranch(projectRoot);
-  if (branch && branch !== 'main' && branch !== 'master' && branch !== 'develop') {
+  const skipBranches = ['main', 'master', 'develop', 'development', 'staging', 'production', 'release'];
+  if (branch && !skipBranches.includes(branch) && !branch.startsWith('HEAD detached')) {
     // Parse branch name: feat/auth-middleware → "auth middleware"
+    // Supports: feat/, fix/, add/, task/, ticket/, wip/, bugfix/, hotfix/, improvement/, PROJ-123-desc
     const taskFromBranch = branch
-      .replace(/^(feat|feature|fix|add|update|refactor|chore|hotfix)\//i, '')
+      .replace(/^(feat|feature|fix|add|update|refactor|chore|hotfix|bugfix|task|ticket|wip|improvement|release)\//i, '')
+      .replace(/^[A-Z]+-\d+-?/i, '') // Strip JIRA-style prefix: PROJ-123-
       .replace(/[-_]/g, ' ')
       .trim();
 
@@ -187,18 +190,48 @@ function autoDetectDepChanges(projectRoot, state) {
 
   // Check for notable new deps that weren't in the detected stack
   const notableDeps = {
-    'redis': 'Redis', 'ioredis': 'Redis (ioredis)', 'bullmq': 'BullMQ (Redis)',
-    'prisma': 'Prisma', '@prisma/client': 'Prisma', 'drizzle-orm': 'Drizzle ORM',
-    'mongoose': 'MongoDB (Mongoose)', 'pg': 'PostgreSQL', 'mysql2': 'MySQL',
-    'stripe': 'Stripe', '@stripe/stripe-js': 'Stripe',
-    'next-auth': 'NextAuth', '@auth/core': 'Auth.js',
-    'firebase': 'Firebase', 'supabase': 'Supabase', '@supabase/supabase-js': 'Supabase',
-    'socket.io': 'Socket.IO', 'ws': 'WebSockets',
-    'graphql': 'GraphQL', '@apollo/server': 'Apollo GraphQL',
-    'trpc': 'tRPC', '@trpc/server': 'tRPC',
-    'sentry': 'Sentry', '@sentry/node': 'Sentry',
+    // Databases & ORMs
+    'redis': 'Redis', 'ioredis': 'Redis (ioredis)', 'bullmq': 'BullMQ (Redis)', 'bull': 'Bull (Redis)',
+    'prisma': 'Prisma', '@prisma/client': 'Prisma', 'drizzle-orm': 'Drizzle ORM', 'drizzle-kit': 'Drizzle Kit',
+    'mongoose': 'MongoDB (Mongoose)', 'mongodb': 'MongoDB', 'pg': 'PostgreSQL', 'postgres': 'PostgreSQL',
+    '@neondatabase/serverless': 'Neon PostgreSQL', 'mysql2': 'MySQL', 'mysql': 'MySQL',
+    'better-sqlite3': 'SQLite', 'sql.js': 'SQLite', 'typeorm': 'TypeORM', 'knex': 'Knex',
+    'sequelize': 'Sequelize', '@planetscale/database': 'PlanetScale',
+    // Payments
+    'stripe': 'Stripe', '@stripe/stripe-js': 'Stripe', 'paypal-rest-sdk': 'PayPal', '@paypal/checkout-server-sdk': 'PayPal',
+    'razorpay': 'Razorpay', 'lemon-squeezy': 'Lemon Squeezy',
+    // Auth
+    'next-auth': 'NextAuth', '@auth/core': 'Auth.js', 'passport': 'Passport.js',
+    'lucia': 'Lucia Auth', 'lucia-auth': 'Lucia Auth', '@clerk/nextjs': 'Clerk',
+    'jsonwebtoken': 'JWT', 'jose': 'JWT (jose)', 'bcrypt': 'bcrypt',
+    // BaaS & Cloud
+    'firebase': 'Firebase', 'firebase-admin': 'Firebase Admin',
+    '@supabase/supabase-js': 'Supabase', 'supabase': 'Supabase',
+    'aws-sdk': 'AWS SDK', '@aws-sdk/client-s3': 'AWS S3', '@aws-sdk/client-dynamodb': 'DynamoDB',
+    '@google-cloud/storage': 'GCP Storage', '@azure/storage-blob': 'Azure Blob',
+    // Realtime
+    'socket.io': 'Socket.IO', 'ws': 'WebSockets', 'pusher': 'Pusher', '@pusher/push-notifications-web': 'Pusher',
+    // API & GraphQL
+    'graphql': 'GraphQL', '@apollo/server': 'Apollo GraphQL', '@apollo/client': 'Apollo Client',
+    '@trpc/server': 'tRPC', '@trpc/client': 'tRPC Client',
+    // Monitoring
+    '@sentry/node': 'Sentry', '@sentry/nextjs': 'Sentry', 'newrelic': 'New Relic',
+    'pino': 'Pino Logger', 'winston': 'Winston Logger', 'datadog-metrics': 'Datadog',
+    // AI/ML
+    'openai': 'OpenAI', '@anthropic-ai/sdk': 'Anthropic Claude', 'langchain': 'LangChain',
+    '@huggingface/inference': 'Hugging Face', 'ai': 'Vercel AI SDK', '@ai-sdk/openai': 'Vercel AI SDK',
+    // Email
+    'nodemailer': 'Nodemailer', 'resend': 'Resend', '@sendgrid/mail': 'SendGrid', 'postmark': 'Postmark',
+    // Storage & CDN
+    '@uploadthing/react': 'UploadThing', 'cloudinary': 'Cloudinary', 'sharp': 'Sharp (image processing)',
+    // Frameworks (notable additions mid-project)
+    'next': 'Next.js', 'express': 'Express', 'fastify': 'Fastify', 'hono': 'Hono',
+    '@nestjs/core': 'NestJS', 'remix': 'Remix', 'astro': 'Astro',
+    // Testing
+    'vitest': 'Vitest', 'jest': 'Jest', 'playwright': 'Playwright', '@playwright/test': 'Playwright',
+    'cypress': 'Cypress', 'msw': 'MSW (Mock Service Worker)',
+    // Infra
     'docker-compose': 'Docker', 'kubernetes-client': 'Kubernetes',
-    'aws-sdk': 'AWS SDK', '@aws-sdk/client-s3': 'AWS S3',
   };
 
   // Read previously saved deps (if any)

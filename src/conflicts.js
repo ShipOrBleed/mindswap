@@ -121,7 +121,12 @@ function checkDepsVsDecisions(projectRoot) {
 // ─── Helpers ───
 
 function normalize(text) {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Preserve apostrophes in contractions (don't, we're) then strip other punctuation
+  return text.toLowerCase()
+    .replace(/n't\b/g, ' not ')  // don't → do not
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function extractMessage(line) {
@@ -171,28 +176,45 @@ function buildDepAliasMap(deps) {
     drizzle: ['drizzle-orm', 'drizzle-kit'],
     mongoose: ['mongoose'],
     mongodb: ['mongodb', 'mongoose'],
-    postgres: ['pg', 'postgres', '@prisma/client'],
+    postgres: ['pg', 'postgres', '@neondatabase/serverless', '@planetscale/database'],
+    postgresql: ['pg', 'postgres', '@neondatabase/serverless'],
     mysql: ['mysql', 'mysql2'],
+    sqlite: ['better-sqlite3', 'sql.js'],
+    supabase: ['@supabase/supabase-js', 'supabase'],
+    firebase: ['firebase', 'firebase-admin'],
+    dynamodb: ['@aws-sdk/client-dynamodb', 'dynamodb'],
     express: ['express'],
     fastify: ['fastify'],
     hono: ['hono'],
+    nestjs: ['@nestjs/core'],
     next: ['next'],
+    remix: ['remix', '@remix-run/node'],
     react: ['react'],
     vue: ['vue'],
     svelte: ['svelte', '@sveltejs/kit'],
+    angular: ['@angular/core'],
     tailwind: ['tailwindcss'],
+    stripe: ['stripe', '@stripe/stripe-js'],
+    paypal: ['paypal-rest-sdk', '@paypal/checkout-server-sdk'],
+    graphql: ['graphql', '@apollo/server', '@apollo/client'],
+    trpc: ['@trpc/server', '@trpc/client'],
     jest: ['jest'],
     vitest: ['vitest'],
     mocha: ['mocha'],
+    playwright: ['playwright', '@playwright/test'],
+    cypress: ['cypress'],
+    sentry: ['@sentry/node', '@sentry/nextjs'],
+    openai: ['openai'],
+    clerk: ['@clerk/nextjs'],
+    passport: ['passport'],
+    socket: ['socket.io', 'ws'],
   };
 
   for (const dep of deps) {
     const lower = dep.toLowerCase();
-    // Direct match
     map.set(lower, dep);
-    // Alias match
     for (const [alias, pkgs] of Object.entries(aliases)) {
-      if (pkgs.includes(lower)) {
+      if (pkgs.some(p => p.toLowerCase() === lower)) {
         map.set(alias, dep);
       }
     }
