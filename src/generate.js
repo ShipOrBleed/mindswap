@@ -285,6 +285,34 @@ ${live.decisions.slice(-5).join('\n') || 'None logged.'}
 
 function guessBuildCommands(proj) {
   const pm = proj.package_manager || 'npm';
+
+  // Go projects
+  if (pm === 'go modules' || proj.language === 'go') {
+    let cmds = `- Install: \`go mod download\`\n`;
+    cmds += `- Build: \`go build ./...\`\n`;
+    cmds += `- Test: \`go test ./...\`\n`;
+    cmds += `- Lint: \`golangci-lint run\`\n`;
+    return cmds;
+  }
+
+  // Python projects
+  if (proj.language === 'python') {
+    const pip = pm === 'poetry' ? 'poetry' : pm === 'pipenv' ? 'pipenv' : 'pip';
+    let cmds = `- Install: \`${pip} install\`\n`;
+    cmds += `- Test: \`pytest\`\n`;
+    cmds += `- Lint: \`ruff check .\`\n`;
+    return cmds;
+  }
+
+  // Rust projects
+  if (pm === 'cargo' || proj.language === 'rust') {
+    let cmds = `- Build: \`cargo build\`\n`;
+    cmds += `- Test: \`cargo test\`\n`;
+    cmds += `- Lint: \`cargo clippy\`\n`;
+    return cmds;
+  }
+
+  // JS/TS projects (default)
   const run = pm === 'yarn' ? 'yarn' : pm === 'pnpm' ? 'pnpm' : pm === 'bun' ? 'bun' : 'npm run';
   const install = pm === 'yarn' ? 'yarn' : `${pm} install`;
 
