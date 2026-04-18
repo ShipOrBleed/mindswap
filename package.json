@@ -1,0 +1,44 @@
+{
+  "name": "relay-dev",
+  "version": "0.1.0",
+  "description": "Your AI's black box recorder. Auto-track project state so any AI tool can pick up exactly where the last one stopped.",
+  "main": "src/index.js",
+  "bin": {
+    "relay": "./bin/relay.js"
+  },
+  "scripts": {
+    "test": "node test/run.js"
+  },
+  "keywords": [
+    "ai",
+    "handoff",
+    "context",
+    "cursor",
+    "claude-code",
+    "codex",
+    "copilot",
+    "windsurf",
+    "cline",
+    "developer-tools",
+    "session",
+    "continuity",
+    "agents",
+    "coding-assistant"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "chalk": "^4.1.2",
+    "commander": "^12.1.0",
+    "simple-git": "^3.27.0",
+    "glob": "^10.4.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}
