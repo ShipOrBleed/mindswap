@@ -1,6 +1,6 @@
 const chalk = require('chalk');
 const { execSync } = require('child_process');
-const { checkpoint } = require('./checkpoint');
+const { save } = require('./save');
 const { generate } = require('./generate');
 
 const TOOLS = {
@@ -50,11 +50,10 @@ async function switchTool(projectRoot, toolName, opts = {}) {
 
   console.log(chalk.bold(`\n⚡ Switching to ${tool.description}\n`));
 
-  // Step 1: Checkpoint current state
-  const message = opts.message || `switching to ${tool.description}`;
-  console.log(chalk.dim('  1. ') + 'Saving checkpoint...');
-  await checkpoint(projectRoot, message, { quiet: true });
-  console.log(chalk.green('     ✓ ') + 'Checkpoint saved');
+  // Step 1: Save full state (auto-detects everything)
+  console.log(chalk.dim('  1. ') + 'Saving state...');
+  await save(projectRoot, { message: opts.message || `switching to ${tool.description}`, quiet: true });
+  console.log(chalk.green('     ✓ ') + 'State saved');
 
   // Step 2: Generate context files
   console.log(chalk.dim('  2. ') + `Generating ${tool.description} context...`);

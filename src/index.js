@@ -7,6 +7,7 @@ const { log } = require('./decisions');
 const { done, reset } = require('./lifecycle');
 const { switchTool } = require('./switch');
 const { summary } = require('./summary');
+const { save } = require('./save');
 const { readState, writeState, updateState, getHistory } = require('./state');
 const { detectProject } = require('./detect');
 const { detectAITool } = require('./detect-ai');
@@ -23,6 +24,7 @@ module.exports = {
   log,
   done,
   reset,
+  save,
   switchTool,
   summary,
   readState,

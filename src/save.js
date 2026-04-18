@@ -1,0 +1,269 @@
+const fs = require('fs');
+const path = require('path');
+const chalk = require('chalk');
+const { readState, updateState, addToHistory, getDataDir } = require('./state');
+const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getRecentCommits, getLastCommitInfo } = require('./git');
+const { detectAITool } = require('./detect-ai');
+const { detectLastStatus, runChecks } = require('./build-test');
+const { generate } = require('./generate');
+
+/**
+ * THE one command. Auto-detects everything, saves full state, generates all context files.
+ * User just runs `mindswap save` (or just `mindswap`) and switches tools.
+ */
+async function save(projectRoot, opts = {}) {
+  const dataDir = getDataDir(projectRoot);
+  if (!fs.existsSync(dataDir)) {
+    console.log(chalk.yellow('\nmindswap not initialized. Run: npx mindswap init\n'));
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const state = readState(projectRoot);
+  const aiTool = detectAITool(projectRoot);
+
+  const quiet = opts.quiet || false;
+  if (!quiet) console.log(chalk.bold('\n⚡ Saving project state...\n'));
+
+  // ─── 1. Auto-detect task from git if no task is set ───
+  let task = state.current_task;
+  if ((!task.description || task.status === 'idle') && isGitRepo(projectRoot)) {
+    const autoTask = autoDetectTask(projectRoot);
+    if (autoTask) {
+      task = { ...task, ...autoTask, status: 'in_progress', started_at: now };
+      if (!quiet) console.log(chalk.dim('  Task:      ') + chalk.white(task.description) + chalk.dim(' (auto-detected)'));
+    }
+  } else if (task.description) {
+    if (!quiet) console.log(chalk.dim('  Task:      ') + chalk.white(task.description));
+  }
+
+  // ─── 2. Auto-detect dependency changes as decisions ───
+  const depChanges = autoDetectDepChanges(projectRoot, state);
+  if (depChanges.length > 0) {
+    const decisionsPath = path.join(dataDir, 'decisions.log');
+    for (const change of depChanges) {
+      fs.appendFileSync(decisionsPath, `[${now}] [auto:deps] ${change}\n`);
+    }
+    if (!quiet) console.log(chalk.dim('  Decisions: ') + chalk.white(`${depChanges.length} auto-logged from dependency changes`));
+  }
+
+  // ─── 3. Gather git state ───
+  let gitInfo = {};
+  if (isGitRepo(projectRoot)) {
+    const branch = getCurrentBranch(projectRoot);
+    const changedFiles = getAllChangedFiles(projectRoot);
+    const commits = getRecentCommits(projectRoot, 5);
+    const lastCommit = getLastCommitInfo(projectRoot);
+
+    gitInfo = {
+      git_branch: branch,
+      files_changed: changedFiles.map(f => `${f.status}: ${f.file}`),
+      git_diff_summary: getDiffSummary(projectRoot),
+      recent_commits: commits,
+      last_commit: lastCommit,
+    };
+
+    if (!quiet) {
+      console.log(chalk.dim('  Branch:    ') + chalk.white(branch));
+      console.log(chalk.dim('  Changed:   ') + chalk.white(`${changedFiles.length} files`));
+      if (commits.length > 0) {
+        console.log(chalk.dim('  Last commit:') + chalk.white(` ${commits[0].message}`));
+      }
+    }
+  }
+
+  // ─── 4. Build/test status (quick detection, no full run unless --check) ───
+  let buildTest = detectLastStatus(projectRoot);
+  if (opts.check) {
+    buildTest = runChecks(projectRoot, { test: true, build: false });
+  }
+  if (buildTest.test) {
+    const ts = buildTest.test;
+    const icon = ts.status === 'pass' ? chalk.green('✓') :
+                 ts.status === 'fail' ? chalk.red('✗') :
+                 ts.status === 'cached' ? chalk.dim('○') : '';
+    let detail = ts.status;
+    if (ts.passed != null) detail = `${ts.passed} passed, ${ts.failed || 0} failed`;
+    if (ts.age) detail += ` (${ts.age})`;
+    if (!quiet) console.log(chalk.dim('  Tests:     ') + icon + ' ' + chalk.white(detail));
+  }
+
+  // ─── 5. Auto-detect what was worked on from file changes ───
+  const workSummary = autoDetectWorkSummary(projectRoot, gitInfo);
+  const message = opts.message || workSummary || 'saving state';
+
+  // ─── 6. Update state ───
+  const updates = {
+    current_task: task,
+    last_checkpoint: {
+      timestamp: now,
+      message: message,
+      ai_tool: aiTool,
+      ...gitInfo,
+    },
+    modified_files: gitInfo.files_changed || [],
+  };
+  if (buildTest.test) updates.test_status = buildTest.test;
+  if (buildTest.build) updates.build_status = buildTest.build;
+
+  updateState(projectRoot, updates);
+
+  // ─── 7. Save to history ───
+  addToHistory(projectRoot, {
+    timestamp: now,
+    message: message,
+    ai_tool: aiTool,
+    task: task,
+    ...gitInfo,
+  });
+
+  // ─── 8. Generate ALL context files ───
+  if (!quiet) console.log(chalk.dim('  Generating context files...'));
+  await generate(projectRoot, { all: true, quiet: true });
+  if (!quiet) {
+    console.log(chalk.green('     ✓ ') + chalk.dim('HANDOFF.md, CLAUDE.md, AGENTS.md, .cursor/rules, copilot-instructions'));
+    console.log(chalk.bold.green('\n✓ State saved — ready to switch tools\n'));
+    console.log(chalk.dim('  Any AI tool will read HANDOFF.md and know exactly where you left off.'));
+    console.log(chalk.dim('  Or switch directly: ') + chalk.white('npx mindswap switch cursor'));
+    console.log();
+  }
+}
+
+/**
+ * Auto-detect current task from recent git commits and branch name.
+ */
+function autoDetectTask(projectRoot) {
+  // Try branch name first — often describes the feature
+  const branch = getCurrentBranch(projectRoot);
+  if (branch && branch !== 'main' && branch !== 'master' && branch !== 'develop') {
+    // Parse branch name: feat/auth-middleware → "auth middleware"
+    const taskFromBranch = branch
+      .replace(/^(feat|feature|fix|add|update|refactor|chore|hotfix)\//i, '')
+      .replace(/[-_]/g, ' ')
+      .trim();
+
+    if (taskFromBranch.length > 2) {
+      // Get more context from recent commits
+      const commits = getRecentCommits(projectRoot, 3);
+      const commitMsgs = commits.map(c => c.message).join('; ');
+      const description = taskFromBranch + (commitMsgs ? ` — recent: ${commitMsgs}` : '');
+
+      return { description };
+    }
+  }
+
+  // Fall back to recent commit messages
+  const commits = getRecentCommits(projectRoot, 3);
+  if (commits.length > 0) {
+    // Use most recent non-merge commit
+    const meaningful = commits.find(c => !c.message.startsWith('Merge'));
+    if (meaningful) {
+      return { description: meaningful.message };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Auto-detect dependency changes by comparing current package.json with saved state.
+ * Returns array of decision strings like "added redis (ioredis@^5.0.0)"
+ */
+function autoDetectDepChanges(projectRoot, state) {
+  const changes = [];
+  const pkgPath = path.join(projectRoot, 'package.json');
+  if (!fs.existsSync(pkgPath)) return changes;
+
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+  } catch { return changes; }
+
+  const currentDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+  const currentDepNames = new Set(Object.keys(currentDeps));
+
+  // Compare with what we know from saved state tech_stack
+  const knownTech = new Set((state.project?.tech_stack || []).map(t => t.toLowerCase()));
+
+  // Check for notable new deps that weren't in the detected stack
+  const notableDeps = {
+    'redis': 'Redis', 'ioredis': 'Redis (ioredis)', 'bullmq': 'BullMQ (Redis)',
+    'prisma': 'Prisma', '@prisma/client': 'Prisma', 'drizzle-orm': 'Drizzle ORM',
+    'mongoose': 'MongoDB (Mongoose)', 'pg': 'PostgreSQL', 'mysql2': 'MySQL',
+    'stripe': 'Stripe', '@stripe/stripe-js': 'Stripe',
+    'next-auth': 'NextAuth', '@auth/core': 'Auth.js',
+    'firebase': 'Firebase', 'supabase': 'Supabase', '@supabase/supabase-js': 'Supabase',
+    'socket.io': 'Socket.IO', 'ws': 'WebSockets',
+    'graphql': 'GraphQL', '@apollo/server': 'Apollo GraphQL',
+    'trpc': 'tRPC', '@trpc/server': 'tRPC',
+    'sentry': 'Sentry', '@sentry/node': 'Sentry',
+    'docker-compose': 'Docker', 'kubernetes-client': 'Kubernetes',
+    'aws-sdk': 'AWS SDK', '@aws-sdk/client-s3': 'AWS S3',
+  };
+
+  // Read previously saved deps (if any)
+  const savedDepsPath = path.join(projectRoot, '.mindswap', '.deps-snapshot.json');
+  let savedDeps = {};
+  try {
+    if (fs.existsSync(savedDepsPath)) {
+      savedDeps = JSON.parse(fs.readFileSync(savedDepsPath, 'utf-8'));
+    }
+  } catch {}
+
+  const savedDepNames = new Set(Object.keys(savedDeps));
+
+  // Detect additions
+  for (const dep of currentDepNames) {
+    if (!savedDepNames.has(dep) && notableDeps[dep]) {
+      changes.push(`added ${notableDeps[dep]} (${dep}@${currentDeps[dep]})`);
+    }
+  }
+
+  // Detect removals
+  for (const dep of savedDepNames) {
+    if (!currentDepNames.has(dep) && notableDeps[dep]) {
+      changes.push(`removed ${notableDeps[dep]} (${dep})`);
+    }
+  }
+
+  // Save current snapshot for next comparison
+  try {
+    fs.writeFileSync(savedDepsPath, JSON.stringify(currentDeps, null, 2), 'utf-8');
+  } catch {}
+
+  return changes;
+}
+
+/**
+ * Auto-generate a work summary from file changes and recent commits.
+ */
+function autoDetectWorkSummary(projectRoot, gitInfo) {
+  const parts = [];
+
+  // From recent commits
+  if (gitInfo.recent_commits?.length > 0) {
+    const latest = gitInfo.recent_commits[0];
+    parts.push(latest.message);
+  }
+
+  // From changed files — detect what areas are being worked on
+  if (gitInfo.files_changed?.length > 0) {
+    const areas = new Set();
+    for (const f of gitInfo.files_changed) {
+      const file = f.split(': ').pop();
+      if (file.includes('auth') || file.includes('login')) areas.add('auth');
+      if (file.includes('api') || file.includes('route')) areas.add('API');
+      if (file.includes('test') || file.includes('spec')) areas.add('tests');
+      if (file.includes('component') || file.includes('page')) areas.add('UI');
+      if (file.includes('db') || file.includes('migration') || file.includes('schema')) areas.add('database');
+      if (file.includes('config') || file.includes('.env')) areas.add('config');
+    }
+    if (areas.size > 0) {
+      parts.push(`working on: ${[...areas].join(', ')}`);
+    }
+  }
+
+  return parts.join(' — ') || null;
+}
+
+module.exports = { save, autoDetectTask, autoDetectDepChanges, autoDetectWorkSummary };

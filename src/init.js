@@ -171,8 +171,8 @@ function installGitHooks(projectRoot) {
 
   const hookPath = path.join(hooksDir, 'post-commit');
   const hookContent = `#!/bin/sh
-# mindswap: auto-checkpoint on commit
-npx mindswap checkpoint "auto: post-commit" --next "" 2>/dev/null || true
+# mindswap: auto-save state on commit
+npx mindswap save --quiet 2>/dev/null || true
 `;
 
   // Don't overwrite existing hooks — append

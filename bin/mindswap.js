@@ -13,15 +13,32 @@ const { log } = require('../src/decisions');
 const { done, reset } = require('../src/lifecycle');
 const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
+const { save } = require('../src/save');
 
 const program = new Command();
 
 program
   .name('mindswap')
-  .description(chalk.bold('mindswap') + ' — Your AI\'s black box recorder.\nAuto-track project state so any AI tool picks up where the last one stopped.')
+  .description(chalk.bold('mindswap') + ' — Your AI\'s black box recorder.\nAuto-track project state so any AI tool picks up where the last one stopped.\n\nJust run ' + chalk.cyan('mindswap') + ' to save everything. That\'s it.')
   .version(pkg.version);
 
-// ─── 1. init ───
+// ─── DEFAULT: save (runs when you just type `mindswap`) ───
+program
+  .command('save', { isDefault: true })
+  .description('THE one command. Auto-detects task, deps, state — generates all context files. Just run `mindswap`.')
+  .option('-m, --message <msg>', 'Optional message (auto-detected if omitted)')
+  .option('-c, --check', 'Also run tests and capture results')
+  .option('-q, --quiet', 'No output (used by git hooks)')
+  .action(async (opts) => {
+    try {
+      await save(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── init ───
 program
   .command('init')
   .description('Initialize mindswap. Auto-detects stack, imports existing AI context files.')
@@ -35,16 +52,16 @@ program
     }
   });
 
-// ─── 2. checkpoint ───
+// ─── checkpoint (power user) ───
 program
   .command('checkpoint [message]')
   .alias('cp')
-  .description('Save a checkpoint of current project state.')
+  .description('Manual checkpoint with custom task/blocker/next flags.')
   .option('-t, --task <task>', 'Current task description')
   .option('-b, --blocker <blocker>', 'Current blocker')
   .option('--next <next>', 'What should be done next')
-  .option('-c, --check', 'Run tests and capture results in checkpoint')
-  .option('--build', 'Also run build check (use with --check)')
+  .option('-c, --check', 'Run tests and capture results')
+  .option('--build', 'Also run build check')
   .action(async (message, opts) => {
     try {
       await checkpoint(process.cwd(), message, opts);
@@ -54,7 +71,7 @@ program
     }
   });
 
-// ─── 3. log ───
+// ─── log ───
 program
   .command('log <message>')
   .alias('l')
@@ -69,7 +86,7 @@ program
     }
   });
 
-// ─── 4. status ───
+// ─── status ───
 program
   .command('status')
   .alias('s')
@@ -85,7 +102,7 @@ program
     }
   });
 
-// ─── 5. generate ───
+// ─── generate ───
 program
   .command('generate')
   .alias('gen')
@@ -105,7 +122,7 @@ program
     }
   });
 
-// ─── 6. done ───
+// ─── done ───
 program
   .command('done [message]')
   .alias('d')
@@ -119,7 +136,7 @@ program
     }
   });
 
-// ─── 7. reset ───
+// ─── reset ───
 program
   .command('reset')
   .alias('r')
@@ -134,7 +151,7 @@ program
     }
   });
 
-// ─── 8. watch ───
+// ─── watch ───
 program
   .command('watch')
   .alias('w')
@@ -149,11 +166,11 @@ program
     }
   });
 
-// ─── 9. switch ───
+// ─── switch ───
 program
   .command('switch <tool>')
   .alias('sw')
-  .description('Switch AI tool — checkpoint + generate context + open. Tools: cursor, claude, copilot, codex, windsurf')
+  .description('Switch AI tool — save + generate context + open. Tools: cursor, claude, copilot, codex, windsurf')
   .option('-m, --message <msg>', 'Checkpoint message')
   .option('--no-open', 'Don\'t try to open the tool')
   .action(async (tool, opts) => {
@@ -165,11 +182,11 @@ program
     }
   });
 
-// ─── 10. summary ───
+// ─── summary ───
 program
   .command('summary')
   .alias('sum')
-  .description('AI-readable session summary — task, decisions, conflicts, stats.')
+  .description('Full session narrative — task, decisions, conflicts, stats.')
   .option('--json', 'Output as JSON')
   .option('--stats', 'Include detailed statistics')
   .action(async (opts) => {
