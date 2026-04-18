@@ -1,16 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const { getRelayDir } = require('./state');
+const { getDataDir } = require('./state');
+const { checkConflicts } = require('./conflicts');
 
 async function log(projectRoot, message, opts = {}) {
-  const relayDir = getRelayDir(projectRoot);
-  if (!fs.existsSync(relayDir)) {
-    console.log(chalk.yellow('\nrelay not initialized. Run: npx relay init\n'));
+  const dataDir = getDataDir(projectRoot);
+  if (!fs.existsSync(dataDir)) {
+    console.log(chalk.yellow('\nmindswap not initialized. Run: npx mindswap init\n'));
     return;
   }
 
-  const decisionsPath = path.join(relayDir, 'decisions.log');
+  // Check for conflicts with existing decisions
+  const conflicts = checkConflicts(projectRoot, message);
+
+  const decisionsPath = path.join(dataDir, 'decisions.log');
   const timestamp = new Date().toISOString();
   const tag = opts.tag || 'general';
 
@@ -18,7 +22,7 @@ async function log(projectRoot, message, opts = {}) {
 
   fs.appendFileSync(decisionsPath, entry + '\n', 'utf-8');
 
-  // Also auto-regenerate HANDOFF.md
+  // Auto-regenerate HANDOFF.md
   try {
     const { generate } = require('./generate');
     await generate(projectRoot, { handoff: true, quiet: true });
@@ -27,7 +31,18 @@ async function log(projectRoot, message, opts = {}) {
   console.log(chalk.bold('\n⚡ Decision logged\n'));
   console.log(chalk.dim('  Tag:     ') + chalk.white(tag));
   console.log(chalk.dim('  Message: ') + chalk.white(message));
-  console.log(chalk.dim('  File:    ') + chalk.green('.relay/decisions.log'));
+  console.log(chalk.dim('  File:    ') + chalk.green('.mindswap/decisions.log'));
+
+  // Warn about conflicts
+  if (conflicts.length > 0) {
+    console.log(chalk.bold.yellow('\n  ⚠  Potential conflicts:'));
+    for (const c of conflicts) {
+      console.log(chalk.yellow(`    • ${c.reason}`));
+      console.log(chalk.dim(`      Existing: ${c.existing}`));
+    }
+    console.log(chalk.dim('\n  The decision was still logged. Review and resolve if needed.'));
+  }
+
   console.log();
 }
 

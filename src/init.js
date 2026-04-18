@@ -1,12 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const { ensureRelayDir, writeState, getDefaultState } = require('./state');
+const { ensureDataDir, writeState, getDefaultState } = require('./state');
 const { detectProject } = require('./detect');
 const { isGitRepo, getCurrentBranch } = require('./git');
 
 async function init(projectRoot, opts = {}) {
-  console.log(chalk.bold('\n⚡ Initializing relay-dev...\n'));
+  console.log(chalk.bold('\n⚡ Initializing mindswap...\n'));
 
   // 1. Detect project
   const project = detectProject(projectRoot);
@@ -16,9 +16,9 @@ async function init(projectRoot, opts = {}) {
   console.log(chalk.dim('  Stack:      ') + chalk.white(project.tech_stack.join(', ') || 'unknown'));
   console.log(chalk.dim('  Pkg manager:') + chalk.white(' ' + (project.package_manager || 'unknown')));
 
-  // 2. Create .relay/ directory
-  const relayDir = ensureRelayDir(projectRoot);
-  console.log(chalk.dim('\n  Created:    ') + chalk.green('.relay/'));
+  // 2. Create .mindswap/ directory
+  const dataDir = ensureDataDir(projectRoot);
+  console.log(chalk.dim('\n  Created:    ') + chalk.green('.mindswap/'));
 
   // 3. Create initial state
   const state = getDefaultState();
@@ -31,7 +31,7 @@ async function init(projectRoot, opts = {}) {
   }
 
   writeState(projectRoot, state);
-  console.log(chalk.dim('  Created:    ') + chalk.green('.relay/state.json'));
+  console.log(chalk.dim('  Created:    ') + chalk.green('.mindswap/state.json'));
 
   // 4. Create config file
   const config = {
@@ -39,46 +39,130 @@ async function init(projectRoot, opts = {}) {
     auto_generate_handoff: true,
     generate_for: ['handoff', 'agents'],
     watch_patterns: ['src/**', 'lib/**', 'app/**', 'pages/**', 'components/**'],
-    ignore_patterns: ['node_modules', 'dist', 'build', '.next', '.relay/history'],
+    ignore_patterns: ['node_modules', 'dist', 'build', '.next', '.mindswap/history'],
     max_diff_lines: 200,
     max_history: 50,
   };
   fs.writeFileSync(
-    path.join(relayDir, 'config.json'),
+    path.join(dataDir, 'config.json'),
     JSON.stringify(config, null, 2),
     'utf-8'
   );
-  console.log(chalk.dim('  Created:    ') + chalk.green('.relay/config.json'));
+  console.log(chalk.dim('  Created:    ') + chalk.green('.mindswap/config.json'));
 
   // 5. Create initial decisions log
   fs.writeFileSync(
-    path.join(relayDir, 'decisions.log'),
+    path.join(dataDir, 'decisions.log'),
     `# Decision Log — ${project.name}\n# Tracks WHY decisions were made so the next AI knows.\n# Format: [timestamp] [tag] message\n\n`,
     'utf-8'
   );
-  console.log(chalk.dim('  Created:    ') + chalk.green('.relay/decisions.log'));
+  console.log(chalk.dim('  Created:    ') + chalk.green('.mindswap/decisions.log'));
 
-  // 6. Install git hooks (optional)
+  // 6. Import existing AI context files
+  const imported = importExistingContext(projectRoot, dataDir);
+  if (imported > 0) {
+    console.log(chalk.dim('  Imported:   ') + chalk.green(`${imported} decisions from existing AI context files`));
+  }
+
+  // 7. Install git hooks (optional)
   if (!opts.noHooks && isGitRepo(projectRoot)) {
     installGitHooks(projectRoot);
     console.log(chalk.dim('  Installed:  ') + chalk.green('git post-commit hook'));
   }
 
-  // 7. Add to .gitignore if needed
+  // 8. Add to .gitignore if needed
   addToGitignore(projectRoot);
 
-  // 8. Generate initial HANDOFF.md
+  // 9. Generate initial HANDOFF.md
   const { generate } = require('./generate');
   await generate(projectRoot, { handoff: true, quiet: true });
-  console.log(chalk.dim('  Created:    ') + chalk.green('.relay/HANDOFF.md'));
+  console.log(chalk.dim('  Created:    ') + chalk.green('HANDOFF.md'));
 
-  console.log(chalk.bold.green('\n✓ relay initialized!\n'));
+  console.log(chalk.bold.green('\n✓ mindswap initialized!\n'));
   console.log(chalk.dim('  Quick start:'));
-  console.log(chalk.white('    npx relay checkpoint "starting auth feature"'));
-  console.log(chalk.white('    npx relay log "chose JWT over sessions for stateless API"'));
-  console.log(chalk.white('    npx relay generate --all'));
-  console.log(chalk.white('    npx relay watch'));
+  console.log(chalk.white('    npx mindswap cp "starting auth feature"'));
+  console.log(chalk.white('    npx mindswap log "chose JWT over sessions"'));
+  console.log(chalk.white('    npx mindswap gen --all'));
+  console.log(chalk.white('    npx mindswap switch cursor'));
   console.log();
+}
+
+/**
+ * Import context from existing AI tool files (CLAUDE.md, AGENTS.md, .cursorrules, etc.)
+ * Extracts decisions and context into the decisions log.
+ */
+function importExistingContext(projectRoot, dataDir) {
+  const decisionsPath = path.join(dataDir, 'decisions.log');
+  let imported = 0;
+  const timestamp = new Date().toISOString();
+
+  const filesToCheck = [
+    { path: 'CLAUDE.md', source: 'Claude Code' },
+    { path: 'AGENTS.md', source: 'AGENTS.md' },
+    { path: '.cursorrules', source: 'Cursor' },
+    { path: '.cursor/rules', source: 'Cursor', isDir: true },
+    { path: '.github/copilot-instructions.md', source: 'GitHub Copilot' },
+  ];
+
+  for (const file of filesToCheck) {
+    const fullPath = path.join(projectRoot, file.path);
+    if (!fs.existsSync(fullPath)) continue;
+
+    if (file.isDir) {
+      // Read all .mdc files in directory
+      try {
+        const files = fs.readdirSync(fullPath).filter(f => f.endsWith('.mdc') || f.endsWith('.md'));
+        for (const f of files) {
+          const content = fs.readFileSync(path.join(fullPath, f), 'utf-8');
+          const decisions = extractDecisionsFromContent(content);
+          for (const d of decisions) {
+            fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${file.source}] ${d}\n`);
+            imported++;
+          }
+        }
+      } catch {}
+    } else {
+      try {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const decisions = extractDecisionsFromContent(content);
+        for (const d of decisions) {
+          fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${file.source}] ${d}\n`);
+          imported++;
+        }
+      } catch {}
+    }
+  }
+
+  return imported;
+}
+
+/**
+ * Extract decision-like statements from markdown content.
+ * Looks for patterns like "use X", "don't use Y", "prefer X over Y", etc.
+ */
+function extractDecisionsFromContent(content) {
+  const decisions = [];
+  const lines = content.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.replace(/^[#\-*>\s]+/, '').trim();
+    if (!trimmed || trimmed.length < 10 || trimmed.length > 200) continue;
+
+    // Skip headings, links, code blocks
+    if (trimmed.startsWith('```') || trimmed.startsWith('<!--')) continue;
+
+    // Look for decision-like patterns
+    const isDecision =
+      /\b(use|using|prefer|chose|avoid|don't|never|always|must|should)\b/i.test(trimmed) &&
+      /\b(over|instead|because|for|not|rather)\b/i.test(trimmed);
+
+    if (isDecision) {
+      decisions.push(trimmed);
+    }
+  }
+
+  // Limit to avoid flooding
+  return decisions.slice(0, 10);
 }
 
 function installGitHooks(projectRoot) {
@@ -87,20 +171,19 @@ function installGitHooks(projectRoot) {
 
   const hookPath = path.join(hooksDir, 'post-commit');
   const hookContent = `#!/bin/sh
-# relay-dev: auto-checkpoint on commit
-npx relay checkpoint "auto: post-commit" --next "" 2>/dev/null || true
+# mindswap: auto-checkpoint on commit
+npx mindswap checkpoint "auto: post-commit" --next "" 2>/dev/null || true
 `;
 
   // Don't overwrite existing hooks — append
   if (fs.existsSync(hookPath)) {
     const existing = fs.readFileSync(hookPath, 'utf-8');
-    if (existing.includes('relay-dev')) return; // Already installed
+    if (existing.includes('mindswap')) return;
     fs.appendFileSync(hookPath, '\n' + hookContent);
   } else {
     fs.writeFileSync(hookPath, hookContent);
   }
 
-  // Make executable
   try {
     fs.chmodSync(hookPath, '755');
   } catch {}
@@ -108,14 +191,13 @@ npx relay checkpoint "auto: post-commit" --next "" 2>/dev/null || true
 
 function addToGitignore(projectRoot) {
   const gitignorePath = path.join(projectRoot, '.gitignore');
-  const relayIgnore = '\n# relay-dev state (history is local)\n.relay/history/\n';
+  const ignore = '\n# mindswap state (history + branches are local)\n.mindswap/history/\n.mindswap/branches/\n';
 
   if (fs.existsSync(gitignorePath)) {
     const content = fs.readFileSync(gitignorePath, 'utf-8');
-    if (content.includes('.relay/history')) return;
-    fs.appendFileSync(gitignorePath, relayIgnore);
+    if (content.includes('.mindswap/history')) return;
+    fs.appendFileSync(gitignorePath, ignore);
   }
-  // Note: .relay/state.json and HANDOFF.md SHOULD be committed — they're the handoff context
 }
 
-module.exports = { init };
+module.exports = { init, importExistingContext, extractDecisionsFromContent };

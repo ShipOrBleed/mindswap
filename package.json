@@ -1,10 +1,10 @@
 {
-  "name": "relay-dev",
-  "version": "1.0.0",
+  "name": "mindswap",
+  "version": "2.0.0",
   "description": "Your AI's black box recorder. Auto-track project state so any AI tool picks up where the last one stopped.",
   "main": "src/index.js",
   "bin": {
-    "relay": "./bin/relay.js"
+    "mindswap": "./bin/mindswap.js"
   },
   "files": [
     "bin/",
@@ -29,7 +29,8 @@
     "session",
     "continuity",
     "agents",
-    "coding-assistant"
+    "coding-assistant",
+    "mindswap"
   ],
   "author": "thzgajendra",
   "license": "MIT",
@@ -45,10 +46,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thzgajendra/relay-dev.git"
+    "url": "git+https://github.com/thzgajendra/mindswap.git"
   },
   "bugs": {
-    "url": "https://github.com/thzgajendra/relay-dev/issues"
+    "url": "https://github.com/thzgajendra/mindswap/issues"
   },
-  "homepage": "https://github.com/thzgajendra/relay-dev#readme"
+  "homepage": "https://github.com/thzgajendra/mindswap#readme"
 }

@@ -1,13 +1,13 @@
-# relay-dev
+# mindswap
 
 **Your AI's black box recorder.**
 
 Automatically tracks your project state so any AI coding tool can pick up exactly where the last one stopped.
 
-Hit the token limit in Claude Code? Switch to Cursor — it reads your `.relay/HANDOFF.md` and knows everything: what you were building, what's done, what's broken, and what to do next.
+Hit the token limit in Claude Code? Switch to Cursor — it reads your `HANDOFF.md` and knows everything: what you were building, what's done, what's broken, and what to do next.
 
 ```bash
-npx relay-dev init
+npx mindswap init
 ```
 
 ## The problem
@@ -18,175 +18,193 @@ You spend 20 minutes re-explaining. Every. Single. Time.
 
 ## The solution
 
-Relay lives in your project and maintains a **universal context file** that ANY AI tool can read:
+mindswap lives in your project and maintains a **universal context file** that ANY AI tool can read:
 
 ```
-.relay/
+.mindswap/
 ├── HANDOFF.md       ← The universal handoff doc. Any AI reads this.
-├── state.json       ← Machine-readable project state
+├── state.json       ← Machine-readable project state (branch-aware)
 ├── decisions.log    ← WHY you made each decision
 ├── config.json      ← Your preferences
+├── branches/        ← Per-branch state (auto-managed)
 └── history/         ← Checkpoint timeline
-    ├── checkpoint-2026-04-18T10-30-00.json
-    └── checkpoint-2026-04-18T11-45-00.json
 ```
 
-It also generates **tool-specific files** so every AI reads context in its native format:
+It generates **tool-specific context files** with safe merge — your existing `CLAUDE.md` is never overwritten:
 
 | AI Tool | Generated File | Behavior |
 |---------|---------------|----------|
-| Universal | `HANDOFF.md` | Full overwrite (relay-owned) |
-| Claude Code | `CLAUDE.md` | Safe merge — preserves your existing content |
-| Cursor | `.cursor/rules/relay-context.mdc` | Own file (no conflicts) |
+| Universal | `HANDOFF.md` | Full overwrite (mindswap-owned) |
+| Claude Code | `CLAUDE.md` | Safe merge via `<!-- mindswap:start/end -->` |
+| Cursor | `.cursor/rules/mindswap-context.mdc` | Own file (no conflicts) |
 | GitHub Copilot | `.github/copilot-instructions.md` | Safe merge |
 | Codex / Others | `AGENTS.md` | Safe merge |
-
-> **Safe merge**: If you already have a `CLAUDE.md` or `AGENTS.md`, relay appends its section inside `<!-- relay-dev:start -->` / `<!-- relay-dev:end -->` markers. Your content is never overwritten.
 
 ## Quick start
 
 ```bash
-# 1. Install in your project
-npm install relay-dev --save-dev
+# Install and initialize
+npm install mindswap --save-dev
+npx mindswap init
 
-# 2. Initialize (auto-detects your stack)
-npx relay init
+# Save checkpoints when switching AI tools
+npx mindswap cp "auth middleware — JWT done, refresh tokens left"
 
-# 3. Start working. Save checkpoints when switching AI tools:
-npx relay checkpoint "auth middleware — JWT validation done, refresh tokens left"
+# Log decisions (most valuable context for the next AI)
+npx mindswap log "chose JWT over sessions — stateless for serverless" --tag auth
 
-# 4. Log important decisions (so the next AI doesn't redo them)
-npx relay log "chose JWT over sessions — need stateless API for serverless deploy" --tag architecture
+# Switch to another AI tool in one command
+npx mindswap switch cursor
 
-# 5. Generate context files for all AI tools
-npx relay generate --all
-
-# 6. Mark task complete when done
-npx relay done "auth shipped"
-
-# 7. Or run in watch mode — auto-updates as you code
-npx relay watch
+# See everything at a glance
+npx mindswap summary --stats
 ```
 
-## Commands
+## 10 Commands
 
-### `relay init`
-Sets up `.relay/` in your project. Auto-detects:
-- Language (JS/TS, Python, Go, Rust, Ruby)
-- Framework (Next.js, React, Vue, Express, Django, FastAPI, Rails, etc.)
-- Package manager (npm, yarn, pnpm, bun, pip, cargo)
-- Test runner, build tool, databases
-- Installs a git post-commit hook for auto-checkpoints
+### `mindswap init`
+Sets up `.mindswap/` in your project. Auto-detects language, framework, package manager, test runner, databases. **Imports existing AI context** — if you already have a `CLAUDE.md` or `.cursorrules` with decisions, mindswap pulls them into its decisions log.
 
-### `relay checkpoint [message]`  (alias: `relay cp`)
-Saves a snapshot of current state — git diff, changed files, branch, current task.
+### `mindswap checkpoint [message]` — alias: `cp`
+Saves a snapshot — git diff, changed files, branch, current task, build/test status.
 ```bash
-npx relay cp "implementing rate limiter — basic throttle done, Redis integration next"
-npx relay cp --task "rate limiter" --blocker "Redis connection timeout" --next "debug Redis config"
+npx mindswap cp "rate limiter — basic throttle done, Redis next"
+npx mindswap cp --task "rate limiter" --blocker "Redis timeout" --next "fix config"
+npx mindswap cp --check          # also runs tests and captures results
+npx mindswap cp --check --build  # run both tests and build
 ```
 
-### `relay log <message>`  (alias: `relay l`)
-Logs a decision permanently. This is the **most valuable context for the next AI** — knowing WHY you chose something prevents it from suggesting alternatives you already rejected.
+### `mindswap log <message>` — alias: `l`
+Logs a decision permanently. **Warns if it conflicts** with an existing decision — e.g., if you log "using Redis" but a previous decision says "NOT using Redis".
 ```bash
-npx relay log "using Prisma over Drizzle — team knows it better" --tag database
-npx relay log "NOT using Redis for sessions — overkill for our scale" --tag architecture
+npx mindswap log "using Prisma over Drizzle — team knows it" --tag database
+npx mindswap log "NOT using Redis — overkill for our scale" --tag architecture
 ```
 
-### `relay done [message]`  (alias: `relay d`)
-Marks the current task as completed, archives it to history, and resets to idle.
+### `mindswap status` — alias: `s`
+Shows current state — task, branch, build/test results, decision conflicts, and optional stats.
 ```bash
-npx relay done "auth feature shipped"
-npx relay done  # no message, just mark done
+npx mindswap status           # human-readable
+npx mindswap status --json    # for scripts
+npx mindswap status --stats   # include session statistics + tool usage chart
 ```
 
-### `relay reset`  (alias: `relay r`)
-Clears the current task and checkpoint state. Decisions and history are preserved by default.
+### `mindswap generate` — alias: `gen`
+Generates AI context files. **Safe merge** — your hand-written content is preserved via `<!-- mindswap:start/end -->` markers.
 ```bash
-npx relay reset        # clear task, keep decisions
-npx relay reset --full # clear task AND decisions
+npx mindswap gen              # HANDOFF.md only (default)
+npx mindswap gen --all        # All formats
+npx mindswap gen --claude     # CLAUDE.md
+npx mindswap gen --cursor     # .cursor/rules
+npx mindswap gen --copilot    # copilot-instructions.md
+npx mindswap gen --agents     # AGENTS.md
 ```
 
-### `relay status`  (alias: `relay s`)
-Shows current relay state at a glance.
+### `mindswap done [message]` — alias: `d`
+Marks the current task as completed, archives it to history, resets to idle.
 ```bash
-npx relay status        # human-readable
-npx relay status --json # for scripts
+npx mindswap done "auth shipped"
 ```
 
-### `relay generate`  (alias: `relay gen`)
-Generates AI context files from current state. **Safely merges** with existing files — your hand-written `CLAUDE.md` or `AGENTS.md` content is preserved.
+### `mindswap reset` — alias: `r`
+Clears current task and checkpoint state. Decisions and history preserved by default.
 ```bash
-npx relay gen              # HANDOFF.md only (default)
-npx relay gen --all        # All supported formats
-npx relay gen --claude     # CLAUDE.md only
-npx relay gen --cursor     # .cursor/rules only
-npx relay gen --copilot    # copilot-instructions.md only
-npx relay gen --agents     # AGENTS.md only
+npx mindswap reset         # clear task, keep decisions
+npx mindswap reset --full  # clear task AND decisions
 ```
 
-### `relay watch`  (alias: `relay w`)
-Watches your project for file changes (using [chokidar](https://github.com/paulmillr/chokidar)) and auto-updates `.relay/HANDOFF.md`.
+### `mindswap watch` — alias: `w`
+Watches your project (via chokidar) and auto-updates `HANDOFF.md` as files change.
 ```bash
-npx relay watch              # default 2s debounce
-npx relay watch -i 5000      # 5s debounce
+npx mindswap watch            # 2s debounce
+npx mindswap watch -i 5000    # 5s debounce
 ```
+
+### `mindswap switch <tool>` — alias: `sw`
+**One-command AI tool switch.** Checkpoints your state, generates the right context files, and opens the tool.
+```bash
+npx mindswap switch cursor     # checkpoint + .cursor/rules + open Cursor
+npx mindswap switch claude     # checkpoint + CLAUDE.md
+npx mindswap switch copilot    # checkpoint + copilot-instructions.md + open VS Code
+npx mindswap switch codex      # checkpoint + AGENTS.md
+npx mindswap switch windsurf   # checkpoint + cursor rules + open Windsurf
+```
+
+### `mindswap summary` — alias: `sum`
+Full session narrative — current task, recent commits, uncommitted work, decisions, conflicts, and stats.
+```bash
+npx mindswap summary           # human-readable narrative
+npx mindswap summary --stats   # include tool usage charts
+npx mindswap summary --json    # machine-readable
+```
+
+## Key features
+
+### Branch-aware state
+mindswap automatically tracks state per git branch. Switch to `feat/payments` and it loads that branch's task, decisions, and checkpoint. Switch back to `main` and your main branch state is restored.
+
+### Decision conflict detection
+When you log a decision, mindswap scans for contradictions:
+- "NOT using X" vs "using X"
+- "chose X over Y" then later "using Y"
+- Decisions that contradict your `package.json` dependencies
+
+Conflicts are shown in `status`, `summary`, and warned when you `log`.
+
+### Build/test tracking
+Checkpoint with `--check` to run your tests and capture pass/fail:
+```bash
+npx mindswap cp "refactored auth" --check
+# ⚡ Checkpoint saved
+#   Tests:    ✓ 47 passed, 0 failed
+```
+The next AI sees "tests were passing when I left" — or knows exactly what's broken.
+
+### Context import on init
+If you already have a `CLAUDE.md`, `.cursorrules`, or `AGENTS.md` with decisions and conventions, `mindswap init` automatically extracts and imports them into the decisions log.
 
 ## How it works
 
 ```
-Developer working in Codex          Developer switches to Cursor
-         │                                      │
-         ▼                                      ▼
-   relay monitors                     Cursor reads HANDOFF.md
-   ┌─────────────┐                   ┌──────────────────────┐
-   │ git changes  │                   │ "You were working on │
-   │ file edits   │ ──► HANDOFF.md ──►│  auth middleware.     │
-   │ build errors │     state.json    │  JWT done. Refresh   │
-   │ decisions    │     CLAUDE.md     │  tokens left. Using  │
-   │ checkpoints  │     AGENTS.md     │  Prisma + PostgreSQL │
-   └─────────────┘     .cursorrules   │  Branch: feat/auth"  │
-                                      └──────────────────────┘
+Developer in Codex                  Developer switches to Cursor
+       │                                      │
+       ▼                                      ▼
+  mindswap monitors                  Cursor reads HANDOFF.md
+  ┌──────────────┐                  ┌──────────────────────────┐
+  │ git changes   │                  │ "You were building       │
+  │ file edits    │ → HANDOFF.md  → │  payments. Stripe done.  │
+  │ build/tests   │   state.json    │  Webhooks left. Using    │
+  │ decisions     │   CLAUDE.md     │  Prisma + PostgreSQL.    │
+  │ conflicts     │   AGENTS.md     │  Tests: 47 passing.      │
+  └──────────────┘   .cursorrules   │  Branch: feat/payments"  │
+                                    └──────────────────────────┘
 ```
-
-## What gets tracked
-
-| Signal | How | When |
-|--------|-----|------|
-| Git branch & diff | `simple-git` | Every checkpoint |
-| Modified files | Git status | Every checkpoint + watch |
-| Recent commits | Git log | Every checkpoint |
-| Current task | Your checkpoint message | When you tell it |
-| Decisions | `relay log` | When you log them |
-| AI tool in use | File-based detection | Auto-detected |
-| Tech stack | package.json + lockfiles | On init |
 
 ## What to commit
 
-**Commit these** (they're the handoff context):
-- `.relay/state.json`
-- `.relay/decisions.log`
-- `.relay/config.json`
+**Commit these** (handoff context):
+- `.mindswap/state.json`
+- `.mindswap/decisions.log`
+- `.mindswap/config.json`
 - `HANDOFF.md`
 
 **Don't commit** (auto-added to .gitignore):
-- `.relay/history/` (local checkpoint timeline)
+- `.mindswap/history/`
+- `.mindswap/branches/`
 
 ## FAQ
 
-**Q: Does it work with [my AI tool]?**
-A: If your AI tool can read markdown files in the project (which all of them do), yes. The tool-specific generators (CLAUDE.md, .cursorrules, etc.) are bonus.
-
 **Q: Will it overwrite my existing CLAUDE.md?**
-A: No. Relay uses `<!-- relay-dev:start -->` / `<!-- relay-dev:end -->` markers to inject its section. Your hand-written content is preserved.
+No. mindswap uses `<!-- mindswap:start -->` / `<!-- mindswap:end -->` markers. Your content is preserved.
 
-**Q: Does it slow down my workflow?**
-A: No. The only manual step is `npx relay cp` when you switch tools. The git hook handles auto-checkpoints on commit. Watch mode runs in the background using chokidar (event-based, not polling).
+**Q: Does it work with [my AI tool]?**
+If your AI tool can read markdown files (all of them do), yes.
 
-**Q: What if I forget to checkpoint?**
-A: The git post-commit hook creates auto-checkpoints. Plus, `HANDOFF.md` always reflects the latest git state when regenerated.
+**Q: Does it slow things down?**
+No. Only manual commands (`cp`, `log`) or the background `watch` mode. The git hook runs silently on commit.
 
-**Q: How do I finish a task and start fresh?**
-A: `npx relay done "task completed"` archives the current task and resets to idle. Use `npx relay reset` to clear without archiving.
+**Q: What about multiple branches?**
+State is automatically per-branch. Switch branches and mindswap loads that branch's state.
 
 ## License
 

@@ -1,15 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const { readState, updateState, addToHistory, getRelayDir } = require('./state');
+const { readState, updateState, addToHistory, getDataDir } = require('./state');
 
-/**
- * Mark the current task as completed, archive it, and reset to idle.
- */
 async function done(projectRoot, message) {
-  const relayDir = getRelayDir(projectRoot);
-  if (!fs.existsSync(relayDir)) {
-    console.log(chalk.yellow('\nrelay not initialized. Run: npx relay init\n'));
+  const dataDir = getDataDir(projectRoot);
+  if (!fs.existsSync(dataDir)) {
+    console.log(chalk.yellow('\nmindswap not initialized. Run: npx mindswap init\n'));
     return;
   }
 
@@ -29,7 +26,6 @@ async function done(projectRoot, message) {
     completion_note: message || null,
   };
 
-  // Archive to history
   addToHistory(projectRoot, {
     timestamp: now,
     message: `done: ${task.description || 'task'}${message ? ` — ${message}` : ''}`,
@@ -37,7 +33,6 @@ async function done(projectRoot, message) {
     task: completedTask,
   });
 
-  // Reset current task to idle
   updateState(projectRoot, {
     current_task: {
       description: '',
@@ -48,7 +43,6 @@ async function done(projectRoot, message) {
     },
   });
 
-  // Auto-regenerate HANDOFF.md
   try {
     const { generate } = require('./generate');
     await generate(projectRoot, { handoff: true, quiet: true });
@@ -64,17 +58,13 @@ async function done(projectRoot, message) {
   console.log();
 }
 
-/**
- * Reset current task state. Preserves decisions and history unless --full.
- */
 async function reset(projectRoot, opts = {}) {
-  const relayDir = getRelayDir(projectRoot);
-  if (!fs.existsSync(relayDir)) {
-    console.log(chalk.yellow('\nrelay not initialized. Run: npx relay init\n'));
+  const dataDir = getDataDir(projectRoot);
+  if (!fs.existsSync(dataDir)) {
+    console.log(chalk.yellow('\nmindswap not initialized. Run: npx mindswap init\n'));
     return;
   }
 
-  // Reset task state
   updateState(projectRoot, {
     current_task: {
       description: '',
@@ -92,11 +82,12 @@ async function reset(projectRoot, opts = {}) {
       git_diff_summary: '',
     },
     modified_files: [],
+    build_status: null,
+    test_status: null,
   });
 
-  // Full reset — also clear decisions
   if (opts.full) {
-    const decisionsPath = path.join(relayDir, 'decisions.log');
+    const decisionsPath = path.join(dataDir, 'decisions.log');
     const state = readState(projectRoot);
     const projectName = state.project?.name || 'project';
     fs.writeFileSync(
@@ -106,7 +97,6 @@ async function reset(projectRoot, opts = {}) {
     );
   }
 
-  // Auto-regenerate HANDOFF.md
   try {
     const { generate } = require('./generate');
     await generate(projectRoot, { handoff: true, quiet: true });

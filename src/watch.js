@@ -2,20 +2,20 @@ const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
 const chokidar = require('chokidar');
-const { readState, updateState, getRelayDir } = require('./state');
+const { readState, updateState, getDataDir } = require('./state');
 const { getAllChangedFiles } = require('./git');
 
 async function watch(projectRoot, opts = {}) {
-  const relayDir = getRelayDir(projectRoot);
+  const relayDir = getDataDir(projectRoot);
   if (!fs.existsSync(relayDir)) {
-    console.log(chalk.yellow('\nrelay not initialized. Run: npx relay init\n'));
+    console.log(chalk.yellow('\nmindswap not initialized. Run: npx mindswap init\n'));
     return;
   }
 
   const config = getConfig(projectRoot);
   const debounceMs = parseInt(opts.interval) || 2000;
 
-  console.log(chalk.bold('\n⚡ relay watching...\n'));
+  console.log(chalk.bold('\n⚡ mindswap watching...\n'));
   console.log(chalk.dim('  Monitoring file changes and updating state.'));
   console.log(chalk.dim(`  Debounce: ${debounceMs}ms`));
   console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
@@ -23,14 +23,14 @@ async function watch(projectRoot, opts = {}) {
   let debounceTimer = null;
 
   const watchPatterns = config.watch_patterns || ['src/**', 'lib/**', 'app/**', 'pages/**', 'components/**'];
-  const ignorePatterns = config.ignore_patterns || ['node_modules', 'dist', 'build', '.next', '.relay/history'];
+  const ignorePatterns = config.ignore_patterns || ['node_modules', 'dist', 'build', '.next', '.mindswap/history'];
 
   const watcher = chokidar.watch(watchPatterns, {
     cwd: projectRoot,
     ignored: [
       ...ignorePatterns.map(p => path.join(projectRoot, p)),
       /(^|[/\\])\../, // dotfiles (except explicitly watched)
-      path.join(projectRoot, '.relay', '**'),
+      path.join(projectRoot, '.mindswap', '**'),
       path.join(projectRoot, 'node_modules', '**'),
     ],
     ignoreInitial: true,
@@ -79,7 +79,7 @@ async function watch(projectRoot, opts = {}) {
 }
 
 function getConfig(projectRoot) {
-  const configPath = path.join(projectRoot, '.relay', 'config.json');
+  const configPath = path.join(projectRoot, '.mindswap', 'config.json');
   try {
     return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   } catch {

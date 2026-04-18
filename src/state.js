@@ -1,26 +1,29 @@
 const fs = require('fs');
 const path = require('path');
 
-const RELAY_DIR = '.relay';
+const DATA_DIR = '.mindswap';
 const STATE_FILE = 'state.json';
 const DECISIONS_FILE = 'decisions.log';
 const HISTORY_DIR = 'history';
+const BRANCHES_DIR = 'branches';
 
-function getRelayDir(projectRoot) {
-  return path.join(projectRoot, RELAY_DIR);
+function getDataDir(projectRoot) {
+  return path.join(projectRoot, DATA_DIR);
 }
 
-function ensureRelayDir(projectRoot) {
-  const relayDir = getRelayDir(projectRoot);
-  const historyDir = path.join(relayDir, HISTORY_DIR);
-  if (!fs.existsSync(relayDir)) fs.mkdirSync(relayDir, { recursive: true });
+function ensureDataDir(projectRoot) {
+  const dataDir = getDataDir(projectRoot);
+  const historyDir = path.join(dataDir, HISTORY_DIR);
+  const branchesDir = path.join(dataDir, BRANCHES_DIR);
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
   if (!fs.existsSync(historyDir)) fs.mkdirSync(historyDir, { recursive: true });
-  return relayDir;
+  if (!fs.existsSync(branchesDir)) fs.mkdirSync(branchesDir, { recursive: true });
+  return dataDir;
 }
 
 function getDefaultState() {
   return {
-    version: '0.1.0',
+    version: '1.0.0',
     project: {
       name: '',
       root: '',
@@ -30,7 +33,7 @@ function getDefaultState() {
     current_task: {
       description: '',
       started_at: null,
-      status: 'idle', // idle | in_progress | blocked | paused | completed
+      status: 'idle',
       blocker: null,
       next_steps: [],
     },
@@ -42,28 +45,72 @@ function getDefaultState() {
       git_branch: null,
       git_diff_summary: '',
     },
+    build_status: null,
+    test_status: null,
     session_history: [],
     decisions: [],
     modified_files: [],
-    build_status: null,
-    test_status: null,
   };
 }
 
-function readState(projectRoot) {
-  const statePath = path.join(getRelayDir(projectRoot), STATE_FILE);
-  if (!fs.existsSync(statePath)) return getDefaultState();
+// ─── Branch-aware state ───
+
+function sanitizeBranch(branch) {
+  return branch.replace(/[/\\:*?"<>|]/g, '_');
+}
+
+function getCurrentBranchSafe(projectRoot) {
   try {
-    return JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+    const { execSync } = require('child_process');
+    return execSync('git branch --show-current', {
+      cwd: projectRoot, stdio: 'pipe', encoding: 'utf-8',
+    }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function getBranchStatePath(projectRoot, branch) {
+  return path.join(getDataDir(projectRoot), BRANCHES_DIR, `${sanitizeBranch(branch)}.json`);
+}
+
+function readState(projectRoot) {
+  const dataDir = getDataDir(projectRoot);
+  const mainStatePath = path.join(dataDir, STATE_FILE);
+
+  // Try branch-specific state first
+  const branch = getCurrentBranchSafe(projectRoot);
+  if (branch) {
+    const branchPath = getBranchStatePath(projectRoot, branch);
+    if (fs.existsSync(branchPath)) {
+      try {
+        return JSON.parse(fs.readFileSync(branchPath, 'utf-8'));
+      } catch {}
+    }
+  }
+
+  // Fall back to main state
+  if (!fs.existsSync(mainStatePath)) return getDefaultState();
+  try {
+    return JSON.parse(fs.readFileSync(mainStatePath, 'utf-8'));
   } catch {
     return getDefaultState();
   }
 }
 
 function writeState(projectRoot, state) {
-  const relayDir = ensureRelayDir(projectRoot);
-  const statePath = path.join(relayDir, STATE_FILE);
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
+  const dataDir = ensureDataDir(projectRoot);
+  const mainStatePath = path.join(dataDir, STATE_FILE);
+
+  // Always write to main state.json (current active state)
+  fs.writeFileSync(mainStatePath, JSON.stringify(state, null, 2), 'utf-8');
+
+  // Also write to branch-specific file
+  const branch = getCurrentBranchSafe(projectRoot);
+  if (branch) {
+    const branchPath = getBranchStatePath(projectRoot, branch);
+    fs.writeFileSync(branchPath, JSON.stringify(state, null, 2), 'utf-8');
+  }
 }
 
 function updateState(projectRoot, updates) {
@@ -92,11 +139,13 @@ function deepMerge(target, source) {
   return result;
 }
 
+// ─── History ───
+
 let historyCounter = 0;
 
 function addToHistory(projectRoot, entry) {
-  const relayDir = ensureRelayDir(projectRoot);
-  const historyDir = path.join(relayDir, HISTORY_DIR);
+  const dataDir = ensureDataDir(projectRoot);
+  const historyDir = path.join(dataDir, HISTORY_DIR);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const suffix = String(historyCounter++).padStart(4, '0');
   const filename = `checkpoint-${timestamp}-${suffix}.json`;
@@ -109,7 +158,7 @@ function addToHistory(projectRoot, entry) {
 }
 
 function getHistory(projectRoot, limit = 10) {
-  const historyDir = path.join(getRelayDir(projectRoot), HISTORY_DIR);
+  const historyDir = path.join(getDataDir(projectRoot), HISTORY_DIR);
   if (!fs.existsSync(historyDir)) return [];
   const files = fs.readdirSync(historyDir)
     .filter(f => f.endsWith('.json'))
@@ -126,13 +175,15 @@ function getHistory(projectRoot, limit = 10) {
 }
 
 module.exports = {
-  RELAY_DIR,
-  getRelayDir,
-  ensureRelayDir,
+  DATA_DIR,
+  getDataDir,
+  ensureDataDir,
   getDefaultState,
   readState,
   writeState,
   updateState,
   addToHistory,
   getHistory,
+  sanitizeBranch,
+  getCurrentBranchSafe,
 };
