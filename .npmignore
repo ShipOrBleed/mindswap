@@ -1,0 +1,6 @@
+test/
+.git/
+.github/
+.relay/
+node_modules/
+*.tar.gz

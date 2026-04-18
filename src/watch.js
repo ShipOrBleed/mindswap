@@ -1,6 +1,7 @@
 const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
+const chokidar = require('chokidar');
 const { readState, updateState, getRelayDir } = require('./state');
 const { getAllChangedFiles } = require('./git');
 
@@ -11,65 +12,79 @@ async function watch(projectRoot, opts = {}) {
     return;
   }
 
+  const config = getConfig(projectRoot);
+  const debounceMs = parseInt(opts.interval) || 2000;
+
   console.log(chalk.bold('\n⚡ relay watching...\n'));
   console.log(chalk.dim('  Monitoring file changes and updating state.'));
+  console.log(chalk.dim(`  Debounce: ${debounceMs}ms`));
   console.log(chalk.dim('  Press Ctrl+C to stop.\n'));
 
-  const interval = parseInt(opts.interval) || 2000;
-  let lastFileCount = 0;
-  let lastUpdate = Date.now();
+  let debounceTimer = null;
 
-  // Use polling-based watch (more reliable than chokidar for this use case)
-  const tick = async () => {
-    try {
-      const changed = getAllChangedFiles(projectRoot);
-      const currentCount = changed.length;
+  const watchPatterns = config.watch_patterns || ['src/**', 'lib/**', 'app/**', 'pages/**', 'components/**'];
+  const ignorePatterns = config.ignore_patterns || ['node_modules', 'dist', 'build', '.next', '.relay/history'];
 
-      // Only update if file count changed (something was modified/added/deleted)
-      if (currentCount !== lastFileCount) {
-        const now = Date.now();
-        // Debounce — don't update more than once per interval
-        if (now - lastUpdate > interval) {
-          updateState(projectRoot, {
-            modified_files: changed.map(f => `${f.status}: ${f.file}`),
-          });
+  const watcher = chokidar.watch(watchPatterns, {
+    cwd: projectRoot,
+    ignored: [
+      ...ignorePatterns.map(p => path.join(projectRoot, p)),
+      /(^|[/\\])\../, // dotfiles (except explicitly watched)
+      path.join(projectRoot, '.relay', '**'),
+      path.join(projectRoot, 'node_modules', '**'),
+    ],
+    ignoreInitial: true,
+    persistent: true,
+  });
 
-          // Auto-regenerate HANDOFF.md
-          try {
-            const { generate } = require('./generate');
-            await generate(projectRoot, { handoff: true, quiet: true });
-          } catch {}
+  function scheduleUpdate() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      try {
+        const changed = getAllChangedFiles(projectRoot);
+        updateState(projectRoot, {
+          modified_files: changed.map(f => `${f.status}: ${f.file}`),
+        });
 
-          const delta = currentCount - lastFileCount;
-          const direction = delta > 0 ? chalk.yellow(`+${delta}`) : chalk.green(`${delta}`);
-          console.log(
-            chalk.dim(`  [${new Date().toLocaleTimeString()}] `) +
-            chalk.white(`${currentCount} changed files `) +
-            chalk.dim(`(${direction}) → HANDOFF.md updated`)
-          );
+        // Auto-regenerate HANDOFF.md
+        try {
+          const { generate } = require('./generate');
+          await generate(projectRoot, { handoff: true, quiet: true });
+        } catch {}
 
-          lastFileCount = currentCount;
-          lastUpdate = now;
-        }
-      }
-    } catch {}
-  };
+        console.log(
+          chalk.dim(`  [${new Date().toLocaleTimeString()}] `) +
+          chalk.white(`${changed.length} changed files `) +
+          chalk.dim('→ HANDOFF.md updated')
+        );
+      } catch {}
+    }, debounceMs);
+  }
 
-  // Initial tick
-  await tick();
-
-  // Set up interval
-  const timer = setInterval(tick, interval);
+  watcher
+    .on('change', scheduleUpdate)
+    .on('add', scheduleUpdate)
+    .on('unlink', scheduleUpdate);
 
   // Handle graceful shutdown
   process.on('SIGINT', () => {
-    clearInterval(timer);
+    if (debounceTimer) clearTimeout(debounceTimer);
+    watcher.close();
     console.log(chalk.dim('\n  Stopped watching.\n'));
     process.exit(0);
   });
 
   // Keep process alive
   await new Promise(() => {});
+}
+
+function getConfig(projectRoot) {
+  const configPath = path.join(projectRoot, '.relay', 'config.json');
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  } catch {
+    return {};
+  }
 }
 
 module.exports = { watch };

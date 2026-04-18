@@ -11,6 +11,7 @@ const { status } = require('../src/status');
 const { generate } = require('../src/generate');
 const { watch } = require('../src/watch');
 const { log } = require('../src/decisions');
+const { done, reset } = require('../src/lifecycle');
 
 const program = new Command();
 
@@ -109,6 +110,35 @@ program
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── done ───
+program
+  .command('done [message]')
+  .alias('d')
+  .description('Mark the current task as completed and archive it.')
+  .action(async (message, opts) => {
+    try {
+      await done(process.cwd(), message);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── reset ───
+program
+  .command('reset')
+  .alias('r')
+  .description('Clear current task and start fresh. Does NOT delete decisions or history.')
+  .option('-f, --full', 'Full reset — also clears decisions log')
+  .action(async (opts) => {
+    try {
+      await reset(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

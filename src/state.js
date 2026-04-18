@@ -92,11 +92,14 @@ function deepMerge(target, source) {
   return result;
 }
 
+let historyCounter = 0;
+
 function addToHistory(projectRoot, entry) {
   const relayDir = ensureRelayDir(projectRoot);
   const historyDir = path.join(relayDir, HISTORY_DIR);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = `checkpoint-${timestamp}.json`;
+  const suffix = String(historyCounter++).padStart(4, '0');
+  const filename = `checkpoint-${timestamp}-${suffix}.json`;
   fs.writeFileSync(
     path.join(historyDir, filename),
     JSON.stringify(entry, null, 2),

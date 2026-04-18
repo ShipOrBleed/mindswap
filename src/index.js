@@ -4,6 +4,7 @@ const { status } = require('./status');
 const { generate } = require('./generate');
 const { watch } = require('./watch');
 const { log } = require('./decisions');
+const { done, reset } = require('./lifecycle');
 const { readState, writeState, updateState, getHistory } = require('./state');
 const { detectProject } = require('./detect');
 const { detectAITool } = require('./detect-ai');
@@ -16,6 +17,8 @@ module.exports = {
   generate,
   watch,
   log,
+  done,
+  reset,
   readState,
   writeState,
   updateState,

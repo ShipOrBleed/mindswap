@@ -1,4 +1,4 @@
-# relay-dev ⚡
+# relay-dev
 
 **Your AI's black box recorder.**
 
@@ -33,13 +33,15 @@ Relay lives in your project and maintains a **universal context file** that ANY 
 
 It also generates **tool-specific files** so every AI reads context in its native format:
 
-| AI Tool | Generated File |
-|---------|---------------|
-| Universal | `HANDOFF.md` |
-| Claude Code | `CLAUDE.md` |
-| Cursor | `.cursor/rules/relay-context.mdc` |
-| GitHub Copilot | `.github/copilot-instructions.md` |
-| Codex / Others | `AGENTS.md` |
+| AI Tool | Generated File | Behavior |
+|---------|---------------|----------|
+| Universal | `HANDOFF.md` | Full overwrite (relay-owned) |
+| Claude Code | `CLAUDE.md` | Safe merge — preserves your existing content |
+| Cursor | `.cursor/rules/relay-context.mdc` | Own file (no conflicts) |
+| GitHub Copilot | `.github/copilot-instructions.md` | Safe merge |
+| Codex / Others | `AGENTS.md` | Safe merge |
+
+> **Safe merge**: If you already have a `CLAUDE.md` or `AGENTS.md`, relay appends its section inside `<!-- relay-dev:start -->` / `<!-- relay-dev:end -->` markers. Your content is never overwritten.
 
 ## Quick start
 
@@ -59,7 +61,10 @@ npx relay log "chose JWT over sessions — need stateless API for serverless dep
 # 5. Generate context files for all AI tools
 npx relay generate --all
 
-# 6. Or run in watch mode — auto-updates as you code
+# 6. Mark task complete when done
+npx relay done "auth shipped"
+
+# 7. Or run in watch mode — auto-updates as you code
 npx relay watch
 ```
 
@@ -87,6 +92,20 @@ npx relay log "using Prisma over Drizzle — team knows it better" --tag databas
 npx relay log "NOT using Redis for sessions — overkill for our scale" --tag architecture
 ```
 
+### `relay done [message]`  (alias: `relay d`)
+Marks the current task as completed, archives it to history, and resets to idle.
+```bash
+npx relay done "auth feature shipped"
+npx relay done  # no message, just mark done
+```
+
+### `relay reset`  (alias: `relay r`)
+Clears the current task and checkpoint state. Decisions and history are preserved by default.
+```bash
+npx relay reset        # clear task, keep decisions
+npx relay reset --full # clear task AND decisions
+```
+
 ### `relay status`  (alias: `relay s`)
 Shows current relay state at a glance.
 ```bash
@@ -95,7 +114,7 @@ npx relay status --json # for scripts
 ```
 
 ### `relay generate`  (alias: `relay gen`)
-Generates AI context files from current state.
+Generates AI context files from current state. **Safely merges** with existing files — your hand-written `CLAUDE.md` or `AGENTS.md` content is preserved.
 ```bash
 npx relay gen              # HANDOFF.md only (default)
 npx relay gen --all        # All supported formats
@@ -106,7 +125,7 @@ npx relay gen --agents     # AGENTS.md only
 ```
 
 ### `relay watch`  (alias: `relay w`)
-Watches your project and auto-updates `.relay/HANDOFF.md` as files change.
+Watches your project for file changes (using [chokidar](https://github.com/paulmillr/chokidar)) and auto-updates `.relay/HANDOFF.md`.
 ```bash
 npx relay watch              # default 2s debounce
 npx relay watch -i 5000      # 5s debounce
@@ -138,9 +157,8 @@ Developer working in Codex          Developer switches to Cursor
 | Recent commits | Git log | Every checkpoint |
 | Current task | Your checkpoint message | When you tell it |
 | Decisions | `relay log` | When you log them |
-| AI tool in use | Process + file detection | Auto-detected |
+| AI tool in use | File-based detection | Auto-detected |
 | Tech stack | package.json + lockfiles | On init |
-| Build/test status | Coming soon | — |
 
 ## What to commit
 
@@ -158,11 +176,17 @@ Developer working in Codex          Developer switches to Cursor
 **Q: Does it work with [my AI tool]?**
 A: If your AI tool can read markdown files in the project (which all of them do), yes. The tool-specific generators (CLAUDE.md, .cursorrules, etc.) are bonus.
 
+**Q: Will it overwrite my existing CLAUDE.md?**
+A: No. Relay uses `<!-- relay-dev:start -->` / `<!-- relay-dev:end -->` markers to inject its section. Your hand-written content is preserved.
+
 **Q: Does it slow down my workflow?**
-A: No. The only manual step is `npx relay cp` when you switch tools. The git hook handles auto-checkpoints on commit. Watch mode runs in the background.
+A: No. The only manual step is `npx relay cp` when you switch tools. The git hook handles auto-checkpoints on commit. Watch mode runs in the background using chokidar (event-based, not polling).
 
 **Q: What if I forget to checkpoint?**
 A: The git post-commit hook creates auto-checkpoints. Plus, `HANDOFF.md` always reflects the latest git state when regenerated.
+
+**Q: How do I finish a task and start fresh?**
+A: `npx relay done "task completed"` archives the current task and resets to idle. Use `npx relay reset` to clear without archiving.
 
 ## License
 

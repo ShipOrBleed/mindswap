@@ -1,11 +1,17 @@
 {
   "name": "relay-dev",
-  "version": "0.1.0",
-  "description": "Your AI's black box recorder. Auto-track project state so any AI tool can pick up exactly where the last one stopped.",
+  "version": "1.0.0",
+  "description": "Your AI's black box recorder. Auto-track project state so any AI tool picks up where the last one stopped.",
   "main": "src/index.js",
   "bin": {
     "relay": "./bin/relay.js"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node test/run.js"
   },
@@ -25,7 +31,7 @@
     "agents",
     "coding-assistant"
   ],
-  "author": "",
+  "author": "thzgajendra",
   "license": "MIT",
   "dependencies": {
     "chokidar": "^3.6.0",
@@ -39,6 +45,10 @@
   },
   "repository": {
     "type": "git",
-    "url": ""
-  }
+    "url": "git+https://github.com/thzgajendra/relay-dev.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thzgajendra/relay-dev/issues"
+  },
+  "homepage": "https://github.com/thzgajendra/relay-dev#readme"
 }
