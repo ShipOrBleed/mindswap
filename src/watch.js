@@ -37,16 +37,21 @@ async function watch(projectRoot, opts = {}) {
     persistent: true,
   });
 
+  let updatePending = false;
+
   function scheduleUpdate() {
-    if (debounceTimer) clearTimeout(debounceTimer);
+    updatePending = true;
+    if (debounceTimer) return; // Already scheduled, changes will be picked up
     debounceTimer = setTimeout(async () => {
+      debounceTimer = null;
+      if (!updatePending) return;
+      updatePending = false;
       try {
         const changed = getAllChangedFiles(projectRoot);
         updateState(projectRoot, {
           modified_files: changed.map(f => `${f.status}: ${f.file}`),
         });
 
-        // Auto-regenerate HANDOFF.md
         try {
           const { generate } = require('./generate');
           await generate(projectRoot, { handoff: true, quiet: true });
@@ -57,7 +62,9 @@ async function watch(projectRoot, opts = {}) {
           chalk.white(`${changed.length} changed files `) +
           chalk.dim('→ HANDOFF.md updated')
         );
-      } catch {}
+      } catch (err) {
+        process.stderr.write(`mindswap watch error: ${err.message}\n`);
+      }
     }, debounceMs);
   }
 

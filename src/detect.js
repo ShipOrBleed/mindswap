@@ -233,12 +233,10 @@ function detectProject(projectRoot) {
 function existsInFile(filePath, keyword) {
   try {
     if (!fs.existsSync(filePath)) return false;
-    // Read max 1MB to avoid loading huge files
-    const fd = fs.openSync(filePath, 'r');
-    const buf = Buffer.alloc(1024 * 1024);
-    const bytesRead = fs.readSync(fd, buf, 0, buf.length, 0);
-    fs.closeSync(fd);
-    return buf.slice(0, bytesRead).toString('utf-8').toLowerCase().includes(keyword.toLowerCase());
+    const stat = fs.statSync(filePath);
+    if (stat.size > 2 * 1024 * 1024) return false; // Skip files > 2MB
+    const content = fs.readFileSync(filePath, 'utf-8').toLowerCase();
+    return content.includes(keyword.toLowerCase());
   } catch {
     return false;
   }

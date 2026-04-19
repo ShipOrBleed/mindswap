@@ -44,16 +44,19 @@ function findAllConflicts(projectRoot) {
   const content = fs.readFileSync(decisionsPath, 'utf-8');
   const lines = content.split('\n').filter(l => l.startsWith('['));
   const conflicts = [];
+  // Limit to last 100 decisions to avoid O(n²) explosion on large logs
+  const recentLines = lines.slice(-100);
 
-  for (let i = 0; i < lines.length; i++) {
-    for (let j = i + 1; j < lines.length; j++) {
-      const msgA = extractMessage(lines[i]);
-      const msgB = extractMessage(lines[j]);
+  for (let i = 0; i < recentLines.length; i++) {
+    for (let j = i + 1; j < recentLines.length; j++) {
+      const msgA = extractMessage(recentLines[i]);
+      const msgB = extractMessage(recentLines[j]);
       if (!msgA || !msgB) continue;
 
       const conflict = detectConflict(normalize(msgA), normalize(msgB));
       if (conflict) {
-        conflicts.push({ a: lines[i], b: lines[j], reason: conflict });
+        conflicts.push({ a: recentLines[i], b: recentLines[j], reason: conflict });
+        if (conflicts.length >= 20) return conflicts; // Cap at 20 conflicts
       }
     }
   }

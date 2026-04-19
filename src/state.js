@@ -127,17 +127,20 @@ function updateState(projectRoot, updates) {
 function deepMerge(target, source) {
   const result = { ...target };
   for (const key of Object.keys(source)) {
-    if (
-      source[key] &&
-      typeof source[key] === 'object' &&
-      !Array.isArray(source[key]) &&
+    const val = source[key];
+    // Explicit null/undefined = clear the field
+    if (val === null || val === undefined) {
+      result[key] = val;
+    } else if (
+      typeof val === 'object' &&
+      !Array.isArray(val) &&
       target[key] &&
       typeof target[key] === 'object' &&
       !Array.isArray(target[key])
     ) {
-      result[key] = deepMerge(target[key], source[key]);
+      result[key] = deepMerge(target[key], val);
     } else {
-      result[key] = source[key];
+      result[key] = val;
     }
   }
   return result;

@@ -1,6 +1,6 @@
 const chalk = require('chalk');
 const { readState, getDataDir, getHistory } = require('./state');
-const { isGitRepo, getCurrentBranch, getAllChangedFiles } = require('./git');
+const { isGitRepo, getCurrentBranch, getAllChangedFiles, getRecentCommits } = require('./git');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { calculateQualityScore } = require('./narrative');
 const fs = require('fs');
@@ -105,7 +105,7 @@ async function status(projectRoot, opts = {}) {
   const liveData = {
     branch: isGitRepo(projectRoot) ? getCurrentBranch(projectRoot) : null,
     changedFiles: isGitRepo(projectRoot) ? getAllChangedFiles(projectRoot) : [],
-    recentCommits: isGitRepo(projectRoot) ? require('./git').getRecentCommits(projectRoot, 5) : [],
+    recentCommits: isGitRepo(projectRoot) ? getRecentCommits(projectRoot, 5) : [],
     decisions: [],
     history: getHistory(projectRoot, 5),
   };

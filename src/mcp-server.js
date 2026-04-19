@@ -257,7 +257,9 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
   try {
     const { generate } = require('./generate');
     generate(projectRoot, { handoff: true, quiet: true });
-  } catch {}
+  } catch (err) {
+    try { process.stderr.write(`mindswap MCP: HANDOFF.md generation failed: ${err.message}\n`); } catch {}
+  }
 
   const saved = [];
   if (summary) saved.push('summary');

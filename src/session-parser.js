@@ -66,7 +66,7 @@ function parseClaudeCodeSessions(projectRoot) {
   const latestSession = path.join(sessionDir, sessionFiles[0]);
   try {
     const content = fs.readFileSync(latestSession, 'utf-8');
-    const lines = content.split('\n').filter(l => l.trim());
+    const lines = content.split('\n').filter(l => l.trim()).slice(-5000); // Limit to last 5000 lines
 
     for (const line of lines) {
       try {

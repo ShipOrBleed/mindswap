@@ -100,7 +100,9 @@ async function save(projectRoot, opts = {}) {
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    try { process.stderr.write(`mindswap: session parse warning: ${err.message}\n`); } catch {}
+  }
 
   // ─── 6. Auto-detect what was worked on from file changes ───
   const workSummary = autoDetectWorkSummary(projectRoot, gitInfo);
