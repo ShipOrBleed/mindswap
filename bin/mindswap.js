@@ -15,6 +15,7 @@ const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
+const { startMCPServer } = require('../src/mcp-server');
 
 const program = new Command();
 
@@ -222,4 +223,97 @@ program
     }
   });
 
+// ─── mcp ───
+program
+  .command('mcp')
+  .description('Start mindswap as an MCP server (stdio transport). Used by AI tools, not humans.')
+  .action(async () => {
+    try {
+      await startMCPServer();
+    } catch (err) {
+      process.stderr.write(`mindswap MCP error: ${err.message}\n`);
+      process.exit(1);
+    }
+  });
+
+// ─── mcp install ───
+program
+  .command('mcp-install')
+  .description('Auto-configure mindswap MCP server for Claude Code and Cursor.')
+  .action(async () => {
+    try {
+      await installMCP();
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
 program.parse();
+
+async function installMCP() {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+
+  const mindswapPath = process.argv[1]; // Path to this CLI binary
+  const npxCmd = 'npx';
+
+  console.log(chalk.bold('\n⚡ Installing mindswap MCP server\n'));
+
+  // Claude Code config
+  const claudeConfigPath = path.join(os.homedir(), '.claude.json');
+  let claudeConfig = {};
+  if (fs.existsSync(claudeConfigPath)) {
+    try { claudeConfig = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf-8')); } catch {}
+  }
+  if (!claudeConfig.mcpServers) claudeConfig.mcpServers = {};
+  claudeConfig.mcpServers.mindswap = {
+    type: 'stdio',
+    command: npxCmd,
+    args: ['mindswap', 'mcp'],
+  };
+  fs.writeFileSync(claudeConfigPath, JSON.stringify(claudeConfig, null, 2), 'utf-8');
+  console.log(chalk.green('  ✓ ') + 'Claude Code — ~/.claude.json updated');
+
+  // Cursor config (project-level)
+  const cursorConfigDir = path.join(process.cwd(), '.cursor');
+  if (!fs.existsSync(cursorConfigDir)) fs.mkdirSync(cursorConfigDir, { recursive: true });
+  const cursorConfigPath = path.join(cursorConfigDir, 'mcp.json');
+  let cursorConfig = {};
+  if (fs.existsSync(cursorConfigPath)) {
+    try { cursorConfig = JSON.parse(fs.readFileSync(cursorConfigPath, 'utf-8')); } catch {}
+  }
+  if (!cursorConfig.mcpServers) cursorConfig.mcpServers = {};
+  cursorConfig.mcpServers.mindswap = {
+    type: 'stdio',
+    command: npxCmd,
+    args: ['mindswap', 'mcp'],
+  };
+  fs.writeFileSync(cursorConfigPath, JSON.stringify(cursorConfig, null, 2), 'utf-8');
+  console.log(chalk.green('  ✓ ') + 'Cursor — .cursor/mcp.json updated');
+
+  // VS Code / Copilot config (project-level)
+  const vscodeDir = path.join(process.cwd(), '.vscode');
+  if (!fs.existsSync(vscodeDir)) fs.mkdirSync(vscodeDir, { recursive: true });
+  const vscodeConfigPath = path.join(vscodeDir, 'mcp.json');
+  let vscodeConfig = {};
+  if (fs.existsSync(vscodeConfigPath)) {
+    try { vscodeConfig = JSON.parse(fs.readFileSync(vscodeConfigPath, 'utf-8')); } catch {}
+  }
+  if (!vscodeConfig.servers) vscodeConfig.servers = {};
+  vscodeConfig.servers.mindswap = {
+    type: 'stdio',
+    command: npxCmd,
+    args: ['mindswap', 'mcp'],
+  };
+  fs.writeFileSync(vscodeConfigPath, JSON.stringify(vscodeConfig, null, 2), 'utf-8');
+  console.log(chalk.green('  ✓ ') + 'VS Code / Copilot — .vscode/mcp.json updated');
+
+  console.log(chalk.bold.green('\n✓ MCP server configured!\n'));
+  console.log(chalk.dim('  3 tools available to AI:'));
+  console.log(chalk.white('    mindswap_get_context  ') + chalk.dim('— "What do I need to know?"'));
+  console.log(chalk.white('    mindswap_save_context ') + chalk.dim('— "Here\'s what I did"'));
+  console.log(chalk.white('    mindswap_search       ') + chalk.dim('— "What did we decide about X?"'));
+  console.log(chalk.dim('\n  Restart your AI tool to activate.\n'));
+}

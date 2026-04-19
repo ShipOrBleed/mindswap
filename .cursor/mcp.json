@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mindswap": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "mindswap",
+        "mcp"
+      ]
+    }
+  }
+}

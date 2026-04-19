@@ -1,6 +1,6 @@
 {
   "name": "mindswap",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "description": "Your AI's black box recorder. Auto-track project state so any AI tool picks up where the last one stopped.",
   "main": "src/index.js",
   "bin": {
@@ -35,11 +35,12 @@
   "author": "ShipOrBleed",
   "license": "MIT",
   "dependencies": {
-    "chokidar": "^3.6.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "chalk": "^4.1.2",
+    "chokidar": "^3.6.0",
     "commander": "^12.1.0",
-    "simple-git": "^3.27.0",
-    "glob": "^10.4.5"
+    "glob": "^10.4.5",
+    "simple-git": "^3.27.0"
   },
   "engines": {
     "node": ">=16.0.0"
