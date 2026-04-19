@@ -322,7 +322,92 @@ async function installMCP() {
     console.log(chalk.dim('  ○ ') + 'VS Code — skipped (no .vscode/ directory)');
   }
 
-  console.log(chalk.bold.green('\n✓ MCP server configured!\n'));
+  // Windsurf — only if .windsurf/ exists
+  const windsurfDir = path.join(process.cwd(), '.windsurf');
+  if (fs.existsSync(windsurfDir)) {
+    const wsConfigPath = path.join(windsurfDir, 'mcp.json');
+    let wsConfig = {};
+    if (fs.existsSync(wsConfigPath)) {
+      try { wsConfig = JSON.parse(fs.readFileSync(wsConfigPath, 'utf-8')); } catch {}
+    }
+    if (!wsConfig.mcpServers) wsConfig.mcpServers = {};
+    wsConfig.mcpServers.mindswap = mcpEntry;
+    fs.writeFileSync(wsConfigPath, JSON.stringify(wsConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'Windsurf — .windsurf/mcp.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'Windsurf — skipped (no .windsurf/ directory)');
+  }
+
+  // Cline — VS Code extension, uses .cline/mcp.json or cline_mcp_settings.json
+  const clineDir = path.join(process.cwd(), '.cline');
+  if (fs.existsSync(clineDir)) {
+    const clineConfigPath = path.join(clineDir, 'mcp.json');
+    let clineConfig = {};
+    if (fs.existsSync(clineConfigPath)) {
+      try { clineConfig = JSON.parse(fs.readFileSync(clineConfigPath, 'utf-8')); } catch {}
+    }
+    if (!clineConfig.mcpServers) clineConfig.mcpServers = {};
+    clineConfig.mcpServers.mindswap = mcpEntry;
+    fs.writeFileSync(clineConfigPath, JSON.stringify(clineConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'Cline — .cline/mcp.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'Cline — skipped (no .cline/ directory)');
+  }
+
+  // Roo Code — uses .roo/mcp.json
+  const rooDir = path.join(process.cwd(), '.roo');
+  if (fs.existsSync(rooDir)) {
+    const rooConfigPath = path.join(rooDir, 'mcp.json');
+    let rooConfig = {};
+    if (fs.existsSync(rooConfigPath)) {
+      try { rooConfig = JSON.parse(fs.readFileSync(rooConfigPath, 'utf-8')); } catch {}
+    }
+    if (!rooConfig.mcpServers) rooConfig.mcpServers = {};
+    rooConfig.mcpServers.mindswap = mcpEntry;
+    fs.writeFileSync(rooConfigPath, JSON.stringify(rooConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'Roo Code — .roo/mcp.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'Roo Code — skipped (no .roo/ directory)');
+  }
+
+  // Codex CLI — uses ~/.codex/config.json
+  const codexDir = path.join(os.homedir(), '.codex');
+  if (fs.existsSync(codexDir)) {
+    const codexConfigPath = path.join(codexDir, 'config.json');
+    let codexConfig = {};
+    if (fs.existsSync(codexConfigPath)) {
+      try { codexConfig = JSON.parse(fs.readFileSync(codexConfigPath, 'utf-8')); } catch {}
+    }
+    if (!codexConfig.mcpServers) codexConfig.mcpServers = {};
+    codexConfig.mcpServers.mindswap = mcpEntry;
+    fs.writeFileSync(codexConfigPath, JSON.stringify(codexConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'Codex CLI — ~/.codex/config.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'Codex CLI — skipped (no ~/.codex/ directory)');
+  }
+
+  // Gemini CLI — uses ~/.gemini/config.json
+  const geminiDir = path.join(os.homedir(), '.gemini');
+  if (fs.existsSync(geminiDir)) {
+    const geminiConfigPath = path.join(geminiDir, 'settings.json');
+    let geminiConfig = {};
+    if (fs.existsSync(geminiConfigPath)) {
+      try { geminiConfig = JSON.parse(fs.readFileSync(geminiConfigPath, 'utf-8')); } catch {}
+    }
+    if (!geminiConfig.mcpServers) geminiConfig.mcpServers = {};
+    geminiConfig.mcpServers.mindswap = mcpEntry;
+    fs.writeFileSync(geminiConfigPath, JSON.stringify(geminiConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'Gemini CLI — ~/.gemini/settings.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'Gemini CLI — skipped (no ~/.gemini/ directory)');
+  }
+
+  console.log(chalk.bold.green(`\n✓ MCP server configured for ${configured} tool${configured > 1 ? 's' : ''}!\n`));
   console.log(chalk.dim('  3 tools available to AI:'));
   console.log(chalk.white('    mindswap_get_context  ') + chalk.dim('— "What do I need to know?"'));
   console.log(chalk.white('    mindswap_save_context ') + chalk.dim('— "Here\'s what I did"'));
