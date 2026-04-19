@@ -32,7 +32,7 @@
     "coding-assistant",
     "mindswap"
   ],
-  "author": "thzgajendra",
+  "author": "ShipOrBleed",
   "license": "MIT",
   "dependencies": {
     "chokidar": "^3.6.0",
@@ -46,10 +46,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thzgajendra/mindswap.git"
+    "url": "git+https://github.com/ShipOrBleed/mindswap.git"
   },
   "bugs": {
-    "url": "https://github.com/thzgajendra/mindswap/issues"
+    "url": "https://github.com/ShipOrBleed/mindswap/issues"
   },
   "homepage": "https://mindswap-ui.vercel.app"
 }
