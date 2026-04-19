@@ -19,6 +19,16 @@ const { startMCPServer } = require('../src/mcp-server');
 
 const program = new Command();
 
+// ─── Early intercept for MCP (must run before commander parses) ───
+// Commander's isDefault on save can interfere with mcp subcommand in pipe contexts
+const rawArgs = process.argv.slice(2);
+if (rawArgs[0] === 'mcp' && rawArgs.length === 1) {
+  startMCPServer().catch(err => {
+    process.stderr.write(`mindswap MCP error: ${err.message}\n`);
+    process.exit(1);
+  });
+} else {
+
 program
   .name('mindswap')
   .description(chalk.bold('mindswap') + ' — Your AI\'s black box recorder.\nAuto-track project state so any AI tool picks up where the last one stopped.\n\nJust run ' + chalk.cyan('mindswap') + ' to save everything. That\'s it.')
@@ -250,6 +260,8 @@ program
   });
 
 program.parse();
+
+} // end of else block (non-MCP commands)
 
 async function installMCP() {
   const fs = require('fs');
