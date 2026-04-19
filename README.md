@@ -3,13 +3,19 @@
 [![npm version](https://img.shields.io/npm/v/mindswap.svg)](https://www.npmjs.com/package/mindswap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Your AI's black box recorder.**
+**Your AI's black box recorder.** CLI + MCP server.
 
 One command captures your entire project state. Switch between Claude Code, Cursor, Copilot, Codex — the next AI picks up instantly. Zero re-explaining.
 
+<p align="center">
+  <img src="assets/demo.svg" alt="mindswap demo" width="680">
+</p>
+
 ```bash
 npm install mindswap --save-dev
-npx mindswap init
+npx mindswap init        # once — auto-detects everything
+npx mindswap             # save state when switching tools
+npx mindswap mcp-install # enable MCP for Claude Code / Cursor
 ```
 
 ## The problem
@@ -40,11 +46,18 @@ It auto-detects your task from the branch name, captures git state, logs depende
 
 | AI Tool | Generated File | Behavior |
 |---------|---------------|----------|
-| Universal | `HANDOFF.md` | Full overwrite (mindswap-owned) |
-| Claude Code | `CLAUDE.md` | Safe merge — your content preserved |
-| Cursor | `.cursor/rules/mindswap-context.mdc` | Own file (no conflicts) |
+| Universal | `HANDOFF.md` | Full overwrite |
+| Claude Code | `CLAUDE.md` | Safe merge |
+| Cursor | `.cursor/rules/mindswap-context.mdc` | Own file |
 | GitHub Copilot | `.github/copilot-instructions.md` | Safe merge |
-| Codex / Others | `AGENTS.md` | Safe merge |
+| Codex | `CODEX.md` | Safe merge |
+| Gemini CLI | `GEMINI.md` | Safe merge |
+| Windsurf | `.windsurfrules` | Own file |
+| Cline | `.cline/mindswap-context.md` | Own file |
+| Roo Code | `.roo/rules/mindswap-context.md` | Own file |
+| Aider | `CONVENTIONS.md` | Safe merge |
+| Amp | `.amp/mindswap-context.md` | Own file |
+| AGENTS.md | `AGENTS.md` | Safe merge |
 
 ## The entire flow
 
@@ -112,6 +125,37 @@ Next.js, Remix, Astro, SolidJS, Angular, NestJS, Express, Fastify, Hono, Django,
 **Commit these** (handoff context): `state.json`, `decisions.log`, `config.json`, `HANDOFF.md`
 
 **Don't commit** (auto-added to .gitignore): `history/`, `branches/`
+
+## MCP Server
+
+AI tools can query mindswap natively via [Model Context Protocol](https://modelcontextprotocol.io/) instead of reading static files. 3 tools, stdio transport.
+
+```bash
+npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
+```
+
+| MCP Tool | When AI calls it | What it returns |
+|----------|-----------------|-----------------|
+| `mindswap_get_context` | Session start — "What do I need to know?" | Synthesized briefing: task, decisions, conflicts, tests, recent work |
+| `mindswap_save_context` | Session end — "Here's what I did" | Persists summary, decisions, next steps, blockers |
+| `mindswap_search` | Mid-session — "What did we decide about auth?" | Searches decisions + history + state |
+
+Only 3 tools by design. [Research shows](https://dev.to/aws-heroes/mcp-tool-design-why-your-ai-agent-is-failing-and-how-to-fix-it-40fc) AI accuracy drops from 82% to 73% past 20 tools. We chose quality over quantity.
+
+## Security
+
+All generated context files are scanned for secrets before writing:
+- 25+ patterns: AWS keys, GitHub tokens, Stripe keys, OpenAI keys, DB URLs, private keys, JWT secrets, passwords
+- Auto-redacted — secrets never reach your HANDOFF.md
+- Placeholder-aware — skips `YOUR_KEY_HERE` patterns
+
+## PR Integration
+
+```bash
+npx mindswap pr   # adds context summary to your GitHub PR
+```
+
+Auto-injects task, decisions, test status into the PR description with safe markers.
 
 ## FAQ
 
