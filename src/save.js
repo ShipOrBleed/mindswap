@@ -6,6 +6,7 @@ const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getRece
 const { detectAITool } = require('./detect-ai');
 const { detectLastStatus, runChecks } = require('./build-test');
 const { generate } = require('./generate');
+const { calculateQualityScore } = require('./narrative');
 
 /**
  * THE one command. Auto-detects everything, saves full state, generates all context files.
@@ -122,6 +123,29 @@ async function save(projectRoot, opts = {}) {
   await generate(projectRoot, { all: true, quiet: true });
   if (!quiet) {
     console.log(chalk.green('     ✓ ') + chalk.dim('HANDOFF.md, CLAUDE.md, AGENTS.md, .cursor/rules, copilot-instructions'));
+
+    // Quality score
+    const finalState = readState(projectRoot);
+    const qualityData = {
+      branch: gitInfo.git_branch || null,
+      changedFiles: gitInfo.files_changed ? gitInfo.files_changed.map(f => ({ file: f, status: 'changed' })) : [],
+      recentCommits: gitInfo.recent_commits || [],
+      decisions: [],
+      history: [],
+    };
+    try {
+      const dp = path.join(dataDir, 'decisions.log');
+      if (fs.existsSync(dp)) {
+        qualityData.decisions = fs.readFileSync(dp, 'utf-8').split('\n').filter(l => l.startsWith('['));
+      }
+    } catch {}
+    const quality = calculateQualityScore(finalState, qualityData);
+    const gradeColor = quality.grade === 'A' ? chalk.green : quality.grade === 'B' ? chalk.cyan : quality.grade === 'C' ? chalk.yellow : chalk.red;
+    console.log(chalk.dim('  Quality:   ') + gradeColor(`${quality.grade} (${quality.score}/100)`));
+    if (quality.missing.length > 0 && quality.score < 75) {
+      console.log(chalk.dim('  Tip:       ') + chalk.yellow(quality.missing[0]));
+    }
+
     console.log(chalk.bold.green('\n✓ State saved — ready to switch tools\n'));
     console.log(chalk.dim('  Any AI tool will read HANDOFF.md and know exactly where you left off.'));
     console.log(chalk.dim('  Or switch directly: ') + chalk.white('npx mindswap switch cursor'));

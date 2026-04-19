@@ -113,6 +113,7 @@ program
   .option('--copilot', 'Generate copilot-instructions.md')
   .option('--agents', 'Generate AGENTS.md')
   .option('--handoff', 'Generate HANDOFF.md only (default)')
+  .option('--compact', 'Token-optimized minimal output')
   .action(async (opts) => {
     try {
       await generate(process.cwd(), opts);

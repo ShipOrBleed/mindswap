@@ -14,6 +14,8 @@ const { detectAITool } = require('./detect-ai');
 const { isGitRepo, getCurrentBranch, getAllChangedFiles } = require('./git');
 const { checkConflicts, findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { runChecks, detectLastStatus } = require('./build-test');
+const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require('./narrative');
+const { importSessions } = require('./session-import');
 
 module.exports = {
   init,
@@ -41,4 +43,8 @@ module.exports = {
   checkDepsVsDecisions,
   runChecks,
   detectLastStatus,
+  buildNarrative,
+  buildCompactNarrative,
+  calculateQualityScore,
+  importSessions,
 };

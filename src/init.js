@@ -64,6 +64,42 @@ async function init(projectRoot, opts = {}) {
     console.log(chalk.dim('  Imported:   ') + chalk.green(`${imported} decisions from existing AI context files`));
   }
 
+  // 6b. Import AI session data (.claude/, .cursor/, etc.)
+  try {
+    const { importSessions } = require('./session-import');
+    const sessions = importSessions(projectRoot);
+    let sessionImported = 0;
+    const decisionsPath = path.join(dataDir, 'decisions.log');
+    const timestamp = new Date().toISOString();
+    for (const session of sessions) {
+      for (const d of session.decisions) {
+        fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${session.tool}] ${d}\n`);
+        sessionImported++;
+      }
+      for (const c of session.context) {
+        fs.appendFileSync(decisionsPath, `[${timestamp}] [context:${session.tool}] ${c}\n`);
+        sessionImported++;
+      }
+    }
+    if (sessionImported > 0) {
+      console.log(chalk.dim('  Sessions:   ') + chalk.green(`${sessionImported} context items from AI tool sessions`));
+    }
+  } catch {}
+
+  // 6c. Import project README
+  try {
+    const readmePath = path.join(projectRoot, 'README.md');
+    if (fs.existsSync(readmePath)) {
+      const readme = fs.readFileSync(readmePath, 'utf-8');
+      const description = extractProjectDescription(readme);
+      if (description) {
+        state.project.description = description;
+        writeState(projectRoot, state);
+        console.log(chalk.dim('  README:     ') + chalk.green('project description extracted'));
+      }
+    }
+  } catch {}
+
   // 7. Install git hooks (optional)
   if (!opts.noHooks && isGitRepo(projectRoot)) {
     installGitHooks(projectRoot);
@@ -200,4 +236,34 @@ function addToGitignore(projectRoot) {
   }
 }
 
-module.exports = { init, importExistingContext, extractDecisionsFromContent };
+/**
+ * Extract project description from README.md.
+ * Takes the first meaningful paragraph after the title.
+ */
+function extractProjectDescription(readme) {
+  const lines = readme.split('\n');
+  let foundTitle = false;
+  const descLines = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Skip badges, empty lines, and the title
+    if (trimmed.startsWith('# ') && !foundTitle) { foundTitle = true; continue; }
+    if (!foundTitle) continue;
+    if (trimmed.startsWith('[![') || trimmed.startsWith('![') || trimmed === '') {
+      if (descLines.length > 0) break; // Found desc, hit empty line = done
+      continue;
+    }
+    if (trimmed.startsWith('## ')) break; // Hit next section
+    if (trimmed.startsWith('```')) break;
+    if (trimmed.startsWith('|')) break; // Table
+
+    descLines.push(trimmed.replace(/^\*\*(.+)\*\*$/, '$1')); // Strip bold wrapper
+    if (descLines.length >= 3) break; // Max 3 lines
+  }
+
+  const desc = descLines.join(' ').slice(0, 500);
+  return desc.length > 15 ? desc : null;
+}
+
+module.exports = { init, importExistingContext, extractDecisionsFromContent, extractProjectDescription };

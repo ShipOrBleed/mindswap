@@ -2,6 +2,7 @@ const chalk = require('chalk');
 const { readState, getDataDir, getHistory } = require('./state');
 const { isGitRepo, getCurrentBranch, getAllChangedFiles } = require('./git');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
+const { calculateQualityScore } = require('./narrative');
 const fs = require('fs');
 const path = require('path');
 
@@ -98,6 +99,24 @@ async function status(projectRoot, opts = {}) {
   if (fs.existsSync(decisionsPath)) {
     const lines = fs.readFileSync(decisionsPath, 'utf-8').split('\n').filter(l => l.startsWith('['));
     console.log(chalk.dim('  Decisions:   ') + chalk.white(`${lines.length} logged`));
+  }
+
+  // Quality score
+  const liveData = {
+    branch: isGitRepo(projectRoot) ? getCurrentBranch(projectRoot) : null,
+    changedFiles: isGitRepo(projectRoot) ? getAllChangedFiles(projectRoot) : [],
+    recentCommits: isGitRepo(projectRoot) ? require('./git').getRecentCommits(projectRoot, 5) : [],
+    decisions: [],
+    history: getHistory(projectRoot, 5),
+  };
+  if (fs.existsSync(decisionsPath)) {
+    liveData.decisions = fs.readFileSync(decisionsPath, 'utf-8').split('\n').filter(l => l.startsWith('['));
+  }
+  const quality = calculateQualityScore(state, liveData);
+  const gradeColor = quality.grade === 'A' ? chalk.green : quality.grade === 'B' ? chalk.cyan : quality.grade === 'C' ? chalk.yellow : chalk.red;
+  console.log(chalk.dim('  Handoff:    ') + gradeColor(`${quality.grade} (${quality.score}/100)`));
+  if (quality.missing.length > 0 && quality.score < 75) {
+    console.log(chalk.dim('  Improve:    ') + chalk.yellow(quality.missing[0]));
   }
 
   // Conflict check
