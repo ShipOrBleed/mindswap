@@ -13,7 +13,7 @@ const TOOLS = {
   claude: {
     generateFlag: 'claude',
     description: 'Claude Code',
-    openCmd: null, // CLI-based, can't open
+    openCmd: null,
     openArg: null,
   },
   copilot: {
@@ -23,16 +23,46 @@ const TOOLS = {
     openArg: '.',
   },
   codex: {
-    generateFlag: 'agents',
-    description: 'Codex / AI Agents',
+    generateFlag: 'codex',
+    description: 'OpenAI Codex CLI',
     openCmd: null,
     openArg: null,
   },
   windsurf: {
-    generateFlag: 'cursor', // uses similar rules format
+    generateFlag: 'windsurf',
     description: 'Windsurf IDE',
     openCmd: process.platform === 'darwin' ? 'open -a "Windsurf"' : 'windsurf',
     openArg: '.',
+  },
+  gemini: {
+    generateFlag: 'gemini',
+    description: 'Google Gemini CLI',
+    openCmd: null,
+    openArg: null,
+  },
+  cline: {
+    generateFlag: 'cline',
+    description: 'Cline',
+    openCmd: null,
+    openArg: null,
+  },
+  roo: {
+    generateFlag: 'roo',
+    description: 'Roo Code',
+    openCmd: null,
+    openArg: null,
+  },
+  aider: {
+    generateFlag: 'aider',
+    description: 'Aider',
+    openCmd: null,
+    openArg: null,
+  },
+  amp: {
+    generateFlag: 'amp',
+    description: 'Amp',
+    openCmd: null,
+    openArg: null,
   },
 };
 

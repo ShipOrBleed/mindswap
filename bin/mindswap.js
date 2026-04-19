@@ -14,6 +14,7 @@ const { done, reset } = require('../src/lifecycle');
 const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
 const { save } = require('../src/save');
+const { pr } = require('../src/pr');
 
 const program = new Command();
 
@@ -114,6 +115,13 @@ program
   .option('--agents', 'Generate AGENTS.md')
   .option('--handoff', 'Generate HANDOFF.md only (default)')
   .option('--compact', 'Token-optimized minimal output')
+  .option('--gemini', 'Generate GEMINI.md')
+  .option('--windsurf', 'Generate .windsurfrules')
+  .option('--cline', 'Generate .cline/ rules')
+  .option('--roo', 'Generate .roo/ rules')
+  .option('--aider', 'Generate CONVENTIONS.md')
+  .option('--amp', 'Generate .amp/ rules')
+  .option('--codex', 'Generate CODEX.md')
   .action(async (opts) => {
     try {
       await generate(process.cwd(), opts);
@@ -177,6 +185,20 @@ program
   .action(async (tool, opts) => {
     try {
       await switchTool(process.cwd(), tool, opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── pr ───
+program
+  .command('pr')
+  .description('Add mindswap context to GitHub PR. Updates existing PR or shows context to add.')
+  .option('--body-only', 'Output only the context body (for piping)')
+  .action(async (opts) => {
+    try {
+      await pr(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

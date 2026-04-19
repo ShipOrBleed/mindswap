@@ -16,6 +16,10 @@ const { checkConflicts, findAllConflicts, checkDepsVsDecisions } = require('./co
 const { runChecks, detectLastStatus } = require('./build-test');
 const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require('./narrative');
 const { importSessions } = require('./session-import');
+const { scanForSecrets, redactSecrets } = require('./secrets');
+const { detectMonorepo } = require('./monorepo');
+const { parseNativeSessions } = require('./session-parser');
+const { pr } = require('./pr');
 
 module.exports = {
   init,
@@ -47,4 +51,9 @@ module.exports = {
   buildCompactNarrative,
   calculateQualityScore,
   importSessions,
+  scanForSecrets,
+  redactSecrets,
+  detectMonorepo,
+  parseNativeSessions,
+  pr,
 };

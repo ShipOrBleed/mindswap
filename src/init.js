@@ -4,6 +4,7 @@ const chalk = require('chalk');
 const { ensureDataDir, writeState, getDefaultState } = require('./state');
 const { detectProject } = require('./detect');
 const { isGitRepo, getCurrentBranch } = require('./git');
+const { detectMonorepo } = require('./monorepo');
 
 async function init(projectRoot, opts = {}) {
   console.log(chalk.bold('\n⚡ Initializing mindswap...\n'));
@@ -28,6 +29,17 @@ async function init(projectRoot, opts = {}) {
   if (isGitRepo(projectRoot)) {
     state.last_checkpoint.git_branch = getCurrentBranch(projectRoot);
     console.log(chalk.dim('  Git branch: ') + chalk.white(state.last_checkpoint.git_branch));
+  }
+
+  // Detect monorepo
+  const monorepo = detectMonorepo(projectRoot);
+  if (monorepo.isMonorepo) {
+    state.project.monorepo = monorepo.tool;
+    state.project.packages = monorepo.packages.map(p => ({ name: p.name, path: p.relativePath }));
+    if (!state.project.tech_stack.includes(monorepo.tool)) {
+      state.project.tech_stack.push(monorepo.tool);
+    }
+    console.log(chalk.dim('  Monorepo:   ') + chalk.white(`${monorepo.tool} (${monorepo.packages.length} packages)`));
   }
 
   writeState(projectRoot, state);

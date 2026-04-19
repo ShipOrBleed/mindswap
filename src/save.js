@@ -7,6 +7,7 @@ const { detectAITool } = require('./detect-ai');
 const { detectLastStatus, runChecks } = require('./build-test');
 const { generate } = require('./generate');
 const { calculateQualityScore } = require('./narrative');
+const { parseNativeSessions } = require('./session-parser');
 
 /**
  * THE one command. Auto-detects everything, saves full state, generates all context files.
@@ -89,7 +90,19 @@ async function save(projectRoot, opts = {}) {
     if (!quiet) console.log(chalk.dim('  Tests:     ') + icon + ' ' + chalk.white(detail));
   }
 
-  // ─── 5. Auto-detect what was worked on from file changes ───
+  // ─── 5. Parse native AI sessions for richer context ───
+  try {
+    const sessions = parseNativeSessions(projectRoot);
+    if (sessions.length > 0 && !quiet) {
+      for (const s of sessions) {
+        if (s.fileEdits?.length > 0) {
+          console.log(chalk.dim(`  ${s.tool}:   `) + chalk.white(`${s.fileEdits.length} files edited in last session`));
+        }
+      }
+    }
+  } catch {}
+
+  // ─── 6. Auto-detect what was worked on from file changes ───
   const workSummary = autoDetectWorkSummary(projectRoot, gitInfo);
   const message = opts.message || workSummary || 'saving state';
 

@@ -1,6 +1,6 @@
 {
   "name": "mindswap",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Your AI's black box recorder. Auto-track project state so any AI tool picks up where the last one stopped.",
   "main": "src/index.js",
   "bin": {
