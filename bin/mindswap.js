@@ -261,54 +261,54 @@ async function installMCP() {
 
   console.log(chalk.bold('\n⚡ Installing mindswap MCP server\n'));
 
-  // Claude Code config
+  const mcpEntry = { type: 'stdio', command: npxCmd, args: ['mindswap', 'mcp'] };
+  let configured = 0;
+
+  // Claude Code — always configure (global config, doesn't create project dirs)
   const claudeConfigPath = path.join(os.homedir(), '.claude.json');
   let claudeConfig = {};
   if (fs.existsSync(claudeConfigPath)) {
     try { claudeConfig = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf-8')); } catch {}
   }
   if (!claudeConfig.mcpServers) claudeConfig.mcpServers = {};
-  claudeConfig.mcpServers.mindswap = {
-    type: 'stdio',
-    command: npxCmd,
-    args: ['mindswap', 'mcp'],
-  };
+  claudeConfig.mcpServers.mindswap = mcpEntry;
   fs.writeFileSync(claudeConfigPath, JSON.stringify(claudeConfig, null, 2), 'utf-8');
-  console.log(chalk.green('  ✓ ') + 'Claude Code — ~/.claude.json updated');
+  console.log(chalk.green('  ✓ ') + 'Claude Code — ~/.claude.json');
+  configured++;
 
-  // Cursor config (project-level)
-  const cursorConfigDir = path.join(process.cwd(), '.cursor');
-  if (!fs.existsSync(cursorConfigDir)) fs.mkdirSync(cursorConfigDir, { recursive: true });
-  const cursorConfigPath = path.join(cursorConfigDir, 'mcp.json');
-  let cursorConfig = {};
-  if (fs.existsSync(cursorConfigPath)) {
-    try { cursorConfig = JSON.parse(fs.readFileSync(cursorConfigPath, 'utf-8')); } catch {}
+  // Cursor — only if .cursor/ already exists in this project
+  const cursorDir = path.join(process.cwd(), '.cursor');
+  if (fs.existsSync(cursorDir)) {
+    const cursorConfigPath = path.join(cursorDir, 'mcp.json');
+    let cursorConfig = {};
+    if (fs.existsSync(cursorConfigPath)) {
+      try { cursorConfig = JSON.parse(fs.readFileSync(cursorConfigPath, 'utf-8')); } catch {}
+    }
+    if (!cursorConfig.mcpServers) cursorConfig.mcpServers = {};
+    cursorConfig.mcpServers.mindswap = mcpEntry;
+    fs.writeFileSync(cursorConfigPath, JSON.stringify(cursorConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'Cursor — .cursor/mcp.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'Cursor — skipped (no .cursor/ directory)');
   }
-  if (!cursorConfig.mcpServers) cursorConfig.mcpServers = {};
-  cursorConfig.mcpServers.mindswap = {
-    type: 'stdio',
-    command: npxCmd,
-    args: ['mindswap', 'mcp'],
-  };
-  fs.writeFileSync(cursorConfigPath, JSON.stringify(cursorConfig, null, 2), 'utf-8');
-  console.log(chalk.green('  ✓ ') + 'Cursor — .cursor/mcp.json updated');
 
-  // VS Code / Copilot config (project-level)
+  // VS Code — only if .vscode/ already exists in this project
   const vscodeDir = path.join(process.cwd(), '.vscode');
-  if (!fs.existsSync(vscodeDir)) fs.mkdirSync(vscodeDir, { recursive: true });
-  const vscodeConfigPath = path.join(vscodeDir, 'mcp.json');
-  let vscodeConfig = {};
-  if (fs.existsSync(vscodeConfigPath)) {
-    try { vscodeConfig = JSON.parse(fs.readFileSync(vscodeConfigPath, 'utf-8')); } catch {}
+  if (fs.existsSync(vscodeDir)) {
+    const vscodeConfigPath = path.join(vscodeDir, 'mcp.json');
+    let vscodeConfig = {};
+    if (fs.existsSync(vscodeConfigPath)) {
+      try { vscodeConfig = JSON.parse(fs.readFileSync(vscodeConfigPath, 'utf-8')); } catch {}
+    }
+    if (!vscodeConfig.servers) vscodeConfig.servers = {};
+    vscodeConfig.servers.mindswap = mcpEntry;
+    fs.writeFileSync(vscodeConfigPath, JSON.stringify(vscodeConfig, null, 2), 'utf-8');
+    console.log(chalk.green('  ✓ ') + 'VS Code / Copilot — .vscode/mcp.json');
+    configured++;
+  } else {
+    console.log(chalk.dim('  ○ ') + 'VS Code — skipped (no .vscode/ directory)');
   }
-  if (!vscodeConfig.servers) vscodeConfig.servers = {};
-  vscodeConfig.servers.mindswap = {
-    type: 'stdio',
-    command: npxCmd,
-    args: ['mindswap', 'mcp'],
-  };
-  fs.writeFileSync(vscodeConfigPath, JSON.stringify(vscodeConfig, null, 2), 'utf-8');
-  console.log(chalk.green('  ✓ ') + 'VS Code / Copilot — .vscode/mcp.json updated');
 
   console.log(chalk.bold.green('\n✓ MCP server configured!\n'));
   console.log(chalk.dim('  3 tools available to AI:'));
