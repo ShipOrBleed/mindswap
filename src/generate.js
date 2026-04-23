@@ -6,6 +6,7 @@ const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getDiff
 const { buildNarrative, buildCompactNarrative, summarizeFiles } = require('./narrative');
 const { scanAndRedact, printSecretWarnings } = require('./secrets');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
+const { teamSection } = require('./team');
 
 const SECTION_START = '<!-- mindswap:start -->';
 const SECTION_END = '<!-- mindswap:end -->';
@@ -254,8 +255,14 @@ ${live.branch ? `- **Git branch**: ${live.branch}` : ''}
   if (live.history.length > 0) {
     md += `\n## Session history (recent)\n`;
     for (const h of live.history) {
-      md += `- **${h.timestamp}**: ${h.message}${h.ai_tool ? ` (${h.ai_tool})` : ''}\n`;
+      const author = h.author ? ` — ${h.author}` : '';
+      md += `- **${h.timestamp}**${author}: ${h.message}${h.ai_tool ? ` (${h.ai_tool})` : ''}\n`;
     }
+  }
+
+  const teamInfo = teamSection(projectRoot, live.history);
+  if (teamInfo) {
+    md += `\n${teamInfo}\n`;
   }
 
   if (live.diffSummary && live.diffSummary !== 'No changes') {

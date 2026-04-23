@@ -10,6 +10,7 @@ const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
+const { importSessions } = require('./session-import');
 
 /**
  * Start the mindswap MCP server.
@@ -284,8 +285,9 @@ function searchContext(projectRoot, query, type) {
     };
   }
 
-  const queryLower = query.toLowerCase();
+  const queryTokens = tokenize(query);
   const results = [];
+  const seen = new Set();
 
   // Search decisions
   if (type === 'all' || type === 'decisions') {
@@ -296,9 +298,11 @@ function searchContext(projectRoot, query, type) {
         .filter(l => l.startsWith('['));
 
       for (const line of lines) {
-        if (line.toLowerCase().includes(queryLower)) {
-          results.push({ type: 'decision', content: line });
-        }
+        addScoredResult(results, seen, {
+          type: 'decision',
+          content: line,
+          source: 'decisions.log',
+        }, queryTokens, 1.2);
       }
     }
   }
@@ -307,27 +311,50 @@ function searchContext(projectRoot, query, type) {
   if (type === 'all' || type === 'history') {
     const history = getHistory(projectRoot, 50);
     for (const entry of history) {
-      const entryStr = JSON.stringify(entry).toLowerCase();
-      if (entryStr.includes(queryLower)) {
-        results.push({
-          type: 'history',
-          content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
-        });
-      }
+      addScoredResult(results, seen, {
+        type: 'history',
+        content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
+        source: 'history',
+      }, queryTokens, 1.0, JSON.stringify(entry));
     }
   }
 
   // Search current state
   if (type === 'all') {
     const state = readState(projectRoot);
-    const stateStr = JSON.stringify(state).toLowerCase();
-    if (stateStr.includes(queryLower)) {
-      if (state.current_task?.description?.toLowerCase().includes(queryLower)) {
-        results.push({ type: 'task', content: `Current task: ${state.current_task.description} [${state.current_task.status}]` });
-      }
-      if (state.project?.tech_stack?.some(t => t.toLowerCase().includes(queryLower))) {
-        results.push({ type: 'project', content: `Tech stack includes: ${state.project.tech_stack.join(', ')}` });
-      }
+    if (state.current_task?.description) {
+      addScoredResult(results, seen, {
+        type: 'task',
+        content: `Current task: ${state.current_task.description} [${state.current_task.status}]`,
+        source: 'state.current_task',
+      }, queryTokens, 1.35, state.current_task.description);
+    }
+    if (state.project?.tech_stack?.length) {
+      addScoredResult(results, seen, {
+        type: 'project',
+        content: `Tech stack includes: ${state.project.tech_stack.join(', ')}`,
+        source: 'state.project',
+      }, queryTokens, 0.9, state.project.tech_stack.join(' '));
+    }
+    if (state.current_task?.blocker) {
+      addScoredResult(results, seen, {
+        type: 'blocker',
+        content: `Current blocker: ${state.current_task.blocker}`,
+        source: 'state.current_task',
+      }, queryTokens, 1.15, state.current_task.blocker);
+    }
+  }
+
+  if (type === 'all') {
+    const imported = importSessions(projectRoot) || [];
+    for (const session of imported) {
+      const sourceLabel = session.tool || 'session';
+      const combined = [...(session.decisions || []), ...(session.context || [])].join(' ');
+      addScoredResult(results, seen, {
+        type: 'imported',
+        content: `${sourceLabel}: ${(session.context || session.decisions || []).slice(0, 3).join(' | ')}`,
+        source: sourceLabel,
+      }, queryTokens, 0.8, combined);
     }
   }
 
@@ -335,12 +362,15 @@ function searchContext(projectRoot, query, type) {
     return {
       content: [{
         type: 'text',
-        text: `No results for "${query}". Try broader terms or log more decisions with: npx mindswap log "your decision"`,
+        text: `No results for "${query}". Try broader terms, or log more context with: npx mindswap log "your decision"`,
       }],
     };
   }
 
-  const formatted = results.slice(0, 15).map(r => `[${r.type}] ${r.content}`).join('\n');
+  const topResults = results
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 15);
+  const formatted = topResults.map(r => `[${r.type}] (${Math.round(r.score)}) ${r.content}`).join('\n');
   return {
     content: [{
       type: 'text',
@@ -379,4 +409,77 @@ function gatherLiveData(projectRoot) {
   return data;
 }
 
-module.exports = { startMCPServer };
+function tokenize(query) {
+  const tokens = String(query || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map(token => token.trim())
+    .filter(token => token.length > 1);
+
+  const expanded = new Set(tokens);
+  for (const token of tokens) {
+    for (const alias of QUERY_ALIASES[token] || []) {
+      expanded.add(alias);
+    }
+  }
+
+  return [...expanded];
+}
+
+function addScoredResult(results, seen, entry, queryTokens, weight, haystackText = '') {
+  const text = haystackText || entry.content || '';
+  const score = scoreText(text, queryTokens, weight);
+  if (score <= 0) return;
+  const key = `${entry.type}::${entry.content}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  results.push({ ...entry, score });
+}
+
+function scoreText(text, queryTokens, weight = 1) {
+  if (!text || queryTokens.length === 0) return 0;
+  const haystack = String(text).toLowerCase();
+  let score = 0;
+  for (const token of queryTokens) {
+    if (haystack.includes(token)) {
+      score += token.length >= 5 ? 4 : 2;
+    } else {
+      const fuzzy = findLooseMatch(token, haystack);
+      if (fuzzy) score += 1;
+    }
+  }
+  const coverage = score / Math.max(queryTokens.length * 4, 1);
+  return score * weight * (0.75 + coverage);
+}
+
+function findLooseMatch(token, haystack) {
+  if (token.length < 4) return false;
+  const variants = [
+    token.replace(/s$/, ''),
+    token.replace(/ing$/, ''),
+    token.replace(/ed$/, ''),
+    token.replace(/tion$/, 't'),
+  ].filter(Boolean);
+  return variants.some(v => v !== token && v.length >= 3 && haystack.includes(v));
+}
+
+const QUERY_ALIASES = {
+  auth: ['authentication', 'login', 'session', 'jwt', 'token'],
+  authentication: ['auth', 'login', 'session', 'jwt', 'token'],
+  database: ['db', 'postgres', 'postgresql', 'mysql', 'sqlite', 'prisma', 'drizzle'],
+  db: ['database', 'postgres', 'postgresql', 'mysql', 'sqlite', 'prisma', 'drizzle'],
+  session: ['auth', 'login', 'jwt', 'token'],
+  sessions: ['auth', 'login', 'jwt', 'token'],
+  login: ['auth', 'authentication', 'session', 'jwt', 'token'],
+  api: ['route', 'endpoint', 'handler', 'controller'],
+  testing: ['test', 'tests', 'spec', 'jest', 'vitest', 'pytest'],
+  test: ['testing', 'tests', 'spec', 'jest', 'vitest', 'pytest'],
+  deployment: ['deploy', 'release', 'ci', 'cd', 'workflow'],
+  deploy: ['deployment', 'release', 'ci', 'cd', 'workflow'],
+  billing: ['payment', 'invoice', 'stripe', 'subscription'],
+  payment: ['billing', 'invoice', 'stripe', 'subscription'],
+  config: ['configuration', 'settings', 'env'],
+  ui: ['frontend', 'component', 'page', 'view'],
+};
+
+module.exports = { startMCPServer, searchContext, tokenize, scoreText };
