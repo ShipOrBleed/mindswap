@@ -94,6 +94,9 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 ### Branch-aware state
 Each git branch has its own state. Switch to `feat/payments` — it loads that branch's task and decisions. Switch back to `main` — your main state is restored.
 
+### Native session normalization
+mindswap reads recent Claude Code and Codex session files, normalizes them into a structured model, and surfaces the last session's findings, blockers, and edited files in `HANDOFF.md` and MCP context.
+
 ### Decision conflict detection
 Log "NOT using Redis" then later "using Redis"? mindswap warns you. Also catches reversed choices and package.json contradictions.
 
@@ -136,7 +139,7 @@ npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
 
 | MCP Tool | When AI calls it | What it returns |
 |----------|-----------------|-----------------|
-| `mindswap_get_context` | Session start — "What do I need to know?" | Synthesized briefing: task, decisions, conflicts, tests, recent work |
+| `mindswap_get_context` | Session start — "What do I need to know?" | Synthesized briefing: task, decisions, conflicts, tests, recent work, native session findings |
 | `mindswap_save_context` | Session end — "Here's what I did" | Persists summary, decisions, next steps, blockers |
 | `mindswap_search` | Mid-session — "What did we decide about auth?" | Searches decisions + history + state |
 

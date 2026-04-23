@@ -10,6 +10,7 @@ const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
+const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 
 /**
  * Start the mindswap MCP server.
@@ -167,6 +168,13 @@ function getContext(projectRoot, focus, compact) {
     // Changed files (grouped)
     if (liveData.changedFiles.length > 0) {
       sections.push(`## Uncommitted Changes\n${liveData.changedFiles.length} files changed`);
+    }
+  }
+
+  if (liveData.nativeSessions?.length > 0) {
+    const sessionSummary = getSessionSummary(liveData.nativeSessions);
+    if (sessionSummary.trim()) {
+      sections.push(sessionSummary.trim());
     }
   }
 
@@ -360,6 +368,7 @@ function gatherLiveData(projectRoot) {
     recentCommits: [],
     decisions: [],
     history: [],
+    nativeSessions: [],
   };
 
   if (isGitRepo(projectRoot)) {
@@ -376,6 +385,7 @@ function gatherLiveData(projectRoot) {
   }
 
   data.history = getHistory(projectRoot, 5);
+  data.nativeSessions = parseNativeSessions(projectRoot);
   return data;
 }
 

@@ -48,6 +48,12 @@ function buildNarrative(state, liveData) {
     parts.push(workDone);
   }
 
+  // ─── Recent native AI session ───
+  const sessionBrief = describeSessionFindings(liveData.nativeSessions);
+  if (sessionBrief) {
+    parts.push(sessionBrief);
+  }
+
   // ─── Test/build status ───
   if (state.test_status) {
     const ts = state.test_status;
@@ -113,6 +119,11 @@ function buildCompactNarrative(state, liveData) {
   // Recent commits (just messages, no hashes)
   if (liveData.recentCommits?.length > 0) {
     lines.push(`RECENT: ${liveData.recentCommits.slice(0, 3).map(c => c.message).join(' | ')}`);
+  }
+
+  const sessionBrief = describeSessionFindings(liveData.nativeSessions);
+  if (sessionBrief) {
+    lines.push(`SESSION: ${sessionBrief}`);
   }
 
   // Decisions (stripped, semicolon-separated)
@@ -242,6 +253,22 @@ function summarizeFiles(changedFiles) {
   return `${total} uncommitted files (${parts.join(', ')}${areaStr}).`;
 }
 
+function describeSessionFindings(sessions) {
+  if (!sessions || sessions.length === 0) return null;
+
+  const session = sessions[0];
+  const parts = [];
+  parts.push(`${session.tool}${session.timestamp ? ` @ ${session.timestamp}` : ''}`);
+  if (session.summary) parts.push(session.summary);
+  if (session.blockers?.length > 0) parts.push(`blocker: ${session.blockers[0]}`);
+  if (session.failures?.length > 0) parts.push(`failure: ${session.failures[0]}`);
+  if (session.fileEdits?.length > 0) {
+    parts.push(`files: ${session.fileEdits.slice(0, 3).map(f => path.basename(f)).join(', ')}`);
+  }
+
+  return parts.join(' — ');
+}
+
 /**
  * Calculate context quality score (0-100).
  * Tells user how complete their handoff context is.
@@ -308,6 +335,7 @@ module.exports = {
   buildNarrative,
   buildCompactNarrative,
   describeWorkDone,
+  describeSessionFindings,
   detectWorkPatterns,
   calculateQualityScore,
   summarizeFiles,
