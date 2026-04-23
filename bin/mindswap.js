@@ -13,9 +13,14 @@ const { log } = require('../src/decisions');
 const { done, reset } = require('../src/lifecycle');
 const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
+const { resume } = require('../src/resume');
+const { ask } = require('../src/ask');
+const { contracts } = require('../src/contracts');
+const { sync } = require('../src/sync');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
+const { doctor } = require('../src/doctor');
 
 const program = new Command();
 
@@ -87,8 +92,9 @@ program
 program
   .command('log <message>')
   .alias('l')
-  .description('Log a decision. Warns if it conflicts with existing decisions.')
+  .description('Log a memory item. Decisions warn on conflicts; blockers/questions/assumptions/resolutions are stored in structured memory.')
   .option('--tag <tag>', 'Tag (e.g., architecture, database, auth)')
+  .option('--type <type>', 'Memory type: decision, blocker, assumption, question, resolution')
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
@@ -108,6 +114,20 @@ program
   .action(async (opts) => {
     try {
       await status(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── doctor ───
+program
+  .command('doctor')
+  .description('Diagnose setup, context freshness, hooks, and continuity health.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await doctor(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
@@ -177,6 +197,11 @@ program
   .alias('w')
   .description('Watch for file changes and auto-update HANDOFF.md.')
   .option('-i, --interval <ms>', 'Debounce interval in ms', '2000')
+  .option('--all', 'Refresh all generated context files on each change')
+  .option('--save', 'Run a full save cycle on each change')
+  .option('--tool <tool>', 'Associate watcher lifecycle with a specific AI tool')
+  .option('-m, --message <msg>', 'Session note for automatic watcher start/end saves')
+  .option('--no-hooks', 'Skip automatic session start/end hooks')
   .action(async (opts) => {
     try {
       await watch(process.cwd(), opts);
@@ -192,6 +217,8 @@ program
   .alias('sw')
   .description('Switch AI tool — save + generate context + open. Tools: cursor, claude, copilot, codex, windsurf')
   .option('-m, --message <msg>', 'Checkpoint message')
+  .option('--from <tool>', 'Override the current tool for the session-end hook')
+  .option('--no-hooks', 'Skip automatic session start/end hooks')
   .option('--no-open', 'Don\'t try to open the tool')
   .action(async (tool, opts) => {
     try {
@@ -227,6 +254,67 @@ program
   .action(async (opts) => {
     try {
       await summary(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── ask ───
+program
+  .command('ask <question...>')
+  .description('Answer a question from project memory using semantic search and cited sources.')
+  .option('--json', 'Output as JSON')
+  .action(async (question, opts) => {
+    try {
+      await ask(process.cwd(), question, opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── contracts ───
+program
+  .command('contracts')
+  .description('Emit machine-readable interface contracts for the current workstream.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await contracts(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── sync ───
+program
+  .command('sync')
+  .description('Push or pull shared hub state. Without flags, prints sync status.')
+  .option('--push', 'Push local state to the shared hub')
+  .option('--pull', 'Pull shared state from the hub')
+  .option('--force', 'Override sync conflicts')
+  .option('--hub <path>', 'Path to the sync hub JSON file')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await sync(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── resume ───
+program
+  .command('resume')
+  .description('Action-oriented briefing — state, blockers, and the next best move.')
+  .option('--compact', 'Short, recommendation-first briefing')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await resume(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

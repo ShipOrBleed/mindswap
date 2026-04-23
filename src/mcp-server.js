@@ -10,6 +10,10 @@ const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
+const { importSessions } = require('./session-import');
+const { appendMemoryItem, getOpenMemoryItems, getRecentMemoryItems } = require('./memory');
+const { parseNativeSessions, getSessionSummary } = require('./session-parser');
+const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 
 /**
  * Start the mindswap MCP server.
@@ -55,6 +59,12 @@ async function startMCPServer() {
       summary: z.string().describe('Brief summary of what was done in this session'),
       decisions: z.array(z.string()).optional()
         .describe('Key decisions made during this session (e.g., "chose JWT over sessions for stateless API")'),
+      assumptions: z.array(z.string()).optional()
+        .describe('Assumptions made during this session that should carry forward'),
+      questions: z.array(z.string()).optional()
+        .describe('Open questions that remain unresolved'),
+      resolutions: z.array(z.string()).optional()
+        .describe('Resolved items or conclusions reached during this session'),
       next_steps: z.array(z.string()).optional()
         .describe('What should be done next'),
       blocker: z.string().optional()
@@ -62,8 +72,8 @@ async function startMCPServer() {
       task_status: z.enum(['in_progress', 'blocked', 'paused', 'completed']).optional()
         .describe('Update task status'),
     },
-    async ({ summary, decisions, next_steps, blocker, task_status }) => {
-      return saveContext(projectRoot, { summary, decisions, next_steps, blocker, task_status });
+    async ({ summary, decisions, assumptions, questions, resolutions, next_steps, blocker, task_status }) => {
+      return saveContext(projectRoot, { summary, decisions, assumptions, questions, resolutions, next_steps, blocker, task_status });
     }
   );
 
@@ -144,6 +154,16 @@ function getContext(projectRoot, focus, compact) {
       sections.push(`## Decisions\n${stripped.map(d => `- ${d}`).join('\n')}`);
     }
 
+    const memoryLines = formatMemorySection(projectRoot);
+    if (memoryLines.length > 0) {
+      sections.push(`## Structured Memory\n${memoryLines.join('\n')}`);
+    }
+
+    const guardrailSection = buildGuardrailSection(liveData.guardrails);
+    if (guardrailSection) {
+      sections.push(guardrailSection);
+    }
+
     // Conflicts
     const conflicts = findAllConflicts(projectRoot);
     const depConflicts = checkDepsVsDecisions(projectRoot);
@@ -167,6 +187,13 @@ function getContext(projectRoot, focus, compact) {
     // Changed files (grouped)
     if (liveData.changedFiles.length > 0) {
       sections.push(`## Uncommitted Changes\n${liveData.changedFiles.length} files changed`);
+    }
+  }
+
+  if (liveData.nativeSessions?.length > 0) {
+    const sessionSummary = getSessionSummary(liveData.nativeSessions);
+    if (sessionSummary.trim()) {
+      sections.push(sessionSummary.trim());
     }
   }
 
@@ -200,7 +227,7 @@ function getContext(projectRoot, focus, compact) {
   };
 }
 
-function saveContext(projectRoot, { summary, decisions, next_steps, blocker, task_status }) {
+function saveContext(projectRoot, { summary, decisions, assumptions, questions, resolutions, next_steps, blocker, task_status }) {
   const dataDir = getDataDir(projectRoot);
   if (!fs.existsSync(dataDir)) {
     return {
@@ -241,7 +268,34 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
     const decisionsPath = path.join(dataDir, 'decisions.log');
     for (const d of decisions) {
       fs.appendFileSync(decisionsPath, `[${now}] [ai-session] ${d}\n`);
+      appendMemoryItem(projectRoot, { type: 'decision', tag: 'ai-session', message: d, created_at: now, source: 'mcp' });
     }
+  }
+  if (assumptions?.length > 0) {
+    for (const item of assumptions) {
+      appendMemoryItem(projectRoot, { type: 'assumption', tag: 'ai-session', message: item, created_at: now, source: 'mcp' });
+    }
+  }
+  if (questions?.length > 0) {
+    for (const item of questions) {
+      appendMemoryItem(projectRoot, { type: 'question', tag: 'ai-session', message: item, created_at: now, source: 'mcp' });
+    }
+  }
+  if (resolutions?.length > 0) {
+    for (const item of resolutions) {
+      appendMemoryItem(projectRoot, {
+        type: 'resolution',
+        tag: 'ai-session',
+        message: item,
+        created_at: now,
+        resolved_at: now,
+        status: 'resolved',
+        source: 'mcp',
+      });
+    }
+  }
+  if (blocker) {
+    appendMemoryItem(projectRoot, { type: 'blocker', tag: 'ai-session', message: blocker, created_at: now, source: 'mcp' });
   }
 
   // Save to history
@@ -250,6 +304,9 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
     message: summary || 'saved via MCP',
     type: 'mcp_save',
     decisions: decisions || [],
+    assumptions: assumptions || [],
+    questions: questions || [],
+    resolutions: resolutions || [],
     next_steps: next_steps || [],
   });
 
@@ -264,6 +321,9 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
   const saved = [];
   if (summary) saved.push('summary');
   if (decisions?.length) saved.push(`${decisions.length} decisions`);
+  if (assumptions?.length) saved.push(`${assumptions.length} assumptions`);
+  if (questions?.length) saved.push(`${questions.length} questions`);
+  if (resolutions?.length) saved.push(`${resolutions.length} resolutions`);
   if (next_steps?.length) saved.push('next steps');
   if (blocker) saved.push('blocker');
   if (task_status) saved.push(`status → ${task_status}`);
@@ -284,8 +344,9 @@ function searchContext(projectRoot, query, type) {
     };
   }
 
-  const queryLower = query.toLowerCase();
+  const queryTokens = tokenize(query);
   const results = [];
+  const seen = new Set();
 
   // Search decisions
   if (type === 'all' || type === 'decisions') {
@@ -296,9 +357,11 @@ function searchContext(projectRoot, query, type) {
         .filter(l => l.startsWith('['));
 
       for (const line of lines) {
-        if (line.toLowerCase().includes(queryLower)) {
-          results.push({ type: 'decision', content: line });
-        }
+        addScoredResult(results, seen, {
+          type: 'decision',
+          content: line,
+          source: 'decisions.log',
+        }, queryTokens, 1.2);
       }
     }
   }
@@ -307,27 +370,76 @@ function searchContext(projectRoot, query, type) {
   if (type === 'all' || type === 'history') {
     const history = getHistory(projectRoot, 50);
     for (const entry of history) {
-      const entryStr = JSON.stringify(entry).toLowerCase();
-      if (entryStr.includes(queryLower)) {
-        results.push({
-          type: 'history',
-          content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
-        });
-      }
+      addScoredResult(results, seen, {
+        type: 'history',
+        content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
+        source: 'history',
+      }, queryTokens, 1.0, JSON.stringify(entry));
     }
   }
 
   // Search current state
   if (type === 'all') {
+    const memoryItems = getRecentMemoryItems(projectRoot, 50);
+    for (const item of memoryItems) {
+      addScoredResult(results, seen, {
+        type: `memory:${item.type}`,
+        content: `${item.type}: ${item.message} [${item.status}]`,
+        source: 'memory',
+      }, queryTokens, item.status === 'open' ? 1.15 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`);
+    }
+
     const state = readState(projectRoot);
-    const stateStr = JSON.stringify(state).toLowerCase();
-    if (stateStr.includes(queryLower)) {
-      if (state.current_task?.description?.toLowerCase().includes(queryLower)) {
-        results.push({ type: 'task', content: `Current task: ${state.current_task.description} [${state.current_task.status}]` });
-      }
-      if (state.project?.tech_stack?.some(t => t.toLowerCase().includes(queryLower))) {
-        results.push({ type: 'project', content: `Tech stack includes: ${state.project.tech_stack.join(', ')}` });
-      }
+    if (state.current_task?.description) {
+      addScoredResult(results, seen, {
+        type: 'task',
+        content: `Current task: ${state.current_task.description} [${state.current_task.status}]`,
+        source: 'state.current_task',
+      }, queryTokens, 1.35, state.current_task.description);
+    }
+    if (state.project?.tech_stack?.length) {
+      addScoredResult(results, seen, {
+        type: 'project',
+        content: `Tech stack includes: ${state.project.tech_stack.join(', ')}`,
+        source: 'state.project',
+      }, queryTokens, 0.9, state.project.tech_stack.join(' '));
+    }
+    if (state.current_task?.blocker) {
+      addScoredResult(results, seen, {
+        type: 'blocker',
+        content: `Current blocker: ${state.current_task.blocker}`,
+        source: 'state.current_task',
+      }, queryTokens, 1.15, state.current_task.blocker);
+    }
+  }
+
+  if (type === 'all') {
+    const nativeSessions = parseNativeSessions(projectRoot) || [];
+    for (const session of nativeSessions) {
+      const combined = [
+        session.summary || '',
+        session.blockers?.join(' '),
+        session.failures?.join(' '),
+        session.fileEdits?.join(' '),
+        session.toolCalls?.join(' '),
+        session.messages?.map(message => message.text).join(' '),
+      ].filter(Boolean).join(' ');
+      addScoredResult(results, seen, {
+        type: 'native-session',
+        content: `${session.tool}${session.timestamp ? ` @ ${session.timestamp}` : ''}: ${session.summary || 'session context'}`,
+        source: session.tool,
+      }, queryTokens, 0.9, combined || session.rawText || session.tool);
+    }
+
+    const imported = importSessions(projectRoot) || [];
+    for (const session of imported) {
+      const sourceLabel = session.tool || 'session';
+      const combined = [...(session.decisions || []), ...(session.context || [])].join(' ');
+      addScoredResult(results, seen, {
+        type: 'imported',
+        content: `${sourceLabel}: ${(session.context || session.decisions || []).slice(0, 3).join(' | ')}`,
+        source: sourceLabel,
+      }, queryTokens, 0.8, combined);
     }
   }
 
@@ -335,12 +447,15 @@ function searchContext(projectRoot, query, type) {
     return {
       content: [{
         type: 'text',
-        text: `No results for "${query}". Try broader terms or log more decisions with: npx mindswap log "your decision"`,
+        text: `No results for "${query}". Try broader terms, or log more context with: npx mindswap log "your decision"`,
       }],
     };
   }
 
-  const formatted = results.slice(0, 15).map(r => `[${r.type}] ${r.content}`).join('\n');
+  const topResults = results
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 15);
+  const formatted = topResults.map(r => `[${r.type}] (${Math.round(r.score)}) ${r.content}`).join('\n');
   return {
     content: [{
       type: 'text',
@@ -360,6 +475,7 @@ function gatherLiveData(projectRoot) {
     recentCommits: [],
     decisions: [],
     history: [],
+    nativeSessions: [],
   };
 
   if (isGitRepo(projectRoot)) {
@@ -375,8 +491,98 @@ function gatherLiveData(projectRoot) {
       .filter(l => l.startsWith('['));
   }
 
+  data.structuredMemory = getRecentMemoryItems(projectRoot, 20);
   data.history = getHistory(projectRoot, 5);
+  data.nativeSessions = parseNativeSessions(projectRoot);
+  data.guardrails = analyzeGuardrails(projectRoot, {
+    changedFiles: data.changedFiles,
+    diffContent: '',
+  });
   return data;
 }
 
-module.exports = { startMCPServer };
+function tokenize(query) {
+  const tokens = String(query || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map(token => token.trim())
+    .filter(token => token.length > 1);
+
+  const expanded = new Set(tokens);
+  for (const token of tokens) {
+    for (const alias of QUERY_ALIASES[token] || []) {
+      expanded.add(alias);
+    }
+  }
+
+  return [...expanded];
+}
+
+function addScoredResult(results, seen, entry, queryTokens, weight, haystackText = '') {
+  const text = haystackText || entry.content || '';
+  const score = scoreText(text, queryTokens, weight);
+  if (score <= 0) return;
+  const key = `${entry.type}::${entry.content}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  results.push({ ...entry, score });
+}
+
+function scoreText(text, queryTokens, weight = 1) {
+  if (!text || queryTokens.length === 0) return 0;
+  const haystack = String(text).toLowerCase();
+  let score = 0;
+  for (const token of queryTokens) {
+    if (haystack.includes(token)) {
+      score += token.length >= 5 ? 4 : 2;
+    } else {
+      const fuzzy = findLooseMatch(token, haystack);
+      if (fuzzy) score += 1;
+    }
+  }
+  const coverage = score / Math.max(queryTokens.length * 4, 1);
+  return score * weight * (0.75 + coverage);
+}
+
+function findLooseMatch(token, haystack) {
+  if (token.length < 4) return false;
+  const variants = [
+    token.replace(/s$/, ''),
+    token.replace(/ing$/, ''),
+    token.replace(/ed$/, ''),
+    token.replace(/tion$/, 't'),
+  ].filter(Boolean);
+  return variants.some(v => v !== token && v.length >= 3 && haystack.includes(v));
+}
+
+const QUERY_ALIASES = {
+  auth: ['authentication', 'login', 'session', 'jwt', 'token'],
+  authentication: ['auth', 'login', 'session', 'jwt', 'token'],
+  database: ['db', 'postgres', 'postgresql', 'mysql', 'sqlite', 'prisma', 'drizzle'],
+  db: ['database', 'postgres', 'postgresql', 'mysql', 'sqlite', 'prisma', 'drizzle'],
+  session: ['auth', 'login', 'jwt', 'token'],
+  sessions: ['auth', 'login', 'jwt', 'token'],
+  login: ['auth', 'authentication', 'session', 'jwt', 'token'],
+  api: ['route', 'endpoint', 'handler', 'controller'],
+  testing: ['test', 'tests', 'spec', 'jest', 'vitest', 'pytest'],
+  test: ['testing', 'tests', 'spec', 'jest', 'vitest', 'pytest'],
+  deployment: ['deploy', 'release', 'ci', 'cd', 'workflow'],
+  deploy: ['deployment', 'release', 'ci', 'cd', 'workflow'],
+  billing: ['payment', 'invoice', 'stripe', 'subscription'],
+  payment: ['billing', 'invoice', 'stripe', 'subscription'],
+  config: ['configuration', 'settings', 'env'],
+  ui: ['frontend', 'component', 'page', 'view'],
+};
+
+function formatMemorySection(projectRoot) {
+  const lines = [];
+  for (const item of getOpenMemoryItems(projectRoot, 'blocker', 5)) lines.push(`- BLOCKER: ${item.message}`);
+  for (const item of getOpenMemoryItems(projectRoot, 'question', 5)) lines.push(`- QUESTION: ${item.message}`);
+  for (const item of getOpenMemoryItems(projectRoot, 'assumption', 5)) lines.push(`- ASSUMPTION: ${item.message}`);
+  for (const item of getRecentMemoryItems(projectRoot, 10).filter(item => item.type === 'resolution').slice(-5)) {
+    lines.push(`- RESOLUTION: ${item.message}`);
+  }
+  return lines;
+}
+
+module.exports = { startMCPServer, searchContext, tokenize, scoreText, formatMemorySection };

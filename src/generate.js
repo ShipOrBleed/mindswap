@@ -6,6 +6,10 @@ const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getDiff
 const { buildNarrative, buildCompactNarrative, summarizeFiles } = require('./narrative');
 const { scanAndRedact, printSecretWarnings } = require('./secrets');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
+const { teamSection } = require('./team');
+const { getOpenMemoryItems, getMemoryItems } = require('./memory');
+const { parseNativeSessions, getSessionSummary } = require('./session-parser');
+const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 
 const SECTION_START = '<!-- mindswap:start -->';
 const SECTION_END = '<!-- mindswap:end -->';
@@ -175,7 +179,13 @@ function gatherLiveData(projectRoot) {
       .filter(l => l.startsWith('['))
       .slice(-10);
   }
+  data.structuredMemory = getStructuredMemory(projectRoot);
   data.history = getHistory(projectRoot, 5);
+  data.nativeSessions = parseNativeSessions(projectRoot);
+  data.guardrails = analyzeGuardrails(projectRoot, {
+    changedFiles: data.changedFiles,
+    diffContent: data.diff,
+  });
   return data;
 }
 
@@ -251,11 +261,37 @@ ${live.branch ? `- **Git branch**: ${live.branch}` : ''}
     }
   }
 
+  const memoryLines = formatStructuredMemoryLines(live.structuredMemory);
+  if (memoryLines.length > 0) {
+    md += `\n## Structured memory\n`;
+    for (const line of memoryLines) {
+      md += `${line}\n`;
+    }
+  }
+
   if (live.history.length > 0) {
     md += `\n## Session history (recent)\n`;
     for (const h of live.history) {
-      md += `- **${h.timestamp}**: ${h.message}${h.ai_tool ? ` (${h.ai_tool})` : ''}\n`;
+      const author = h.author ? ` — ${h.author}` : '';
+      md += `- **${h.timestamp}**${author}: ${h.message}${h.ai_tool ? ` (${h.ai_tool})` : ''}\n`;
     }
+  }
+
+  const teamInfo = teamSection(projectRoot, live.history);
+  if (teamInfo) {
+    md += `\n${teamInfo}\n`;
+  }
+
+  if (live.nativeSessions?.length > 0) {
+    const sessionSummary = getSessionSummary(live.nativeSessions);
+    if (sessionSummary.trim()) {
+      md += `\n${sessionSummary}\n`;
+    }
+  }
+
+  const guardrailSection = buildGuardrailSection(live.guardrails);
+  if (guardrailSection) {
+    md += `\n${guardrailSection}\n`;
   }
 
   if (live.diffSummary && live.diffSummary !== 'No changes') {
@@ -301,6 +337,9 @@ ${proj.build_tool ? `- Build tool: ${proj.build_tool}` : ''}
 
 ## Key decisions
 ${live.decisions.length > 0 ? live.decisions.join('\n') : 'No decisions logged yet. Use `npx mindswap log "your decision"` to add them.'}
+
+## Structured memory
+${formatStructuredMemoryText(live.structuredMemory)}
 `;
 }
 
@@ -326,6 +365,11 @@ ${guessBuildCommands(proj)}
 ## Decisions
 ${live.decisions.slice(-5).join('\n') || 'None logged.'}
 
+## Structured memory
+${formatStructuredMemoryText(live.structuredMemory)}
+
+${buildGuardrailSection(live.guardrails)}
+
 ## Recent changes
 ${live.changedFiles.slice(0, 15).map(f => `${f.status}: ${f.file}`).join('\n') || 'No uncommitted changes.'}
 `;
@@ -350,6 +394,9 @@ ${task.blocker ? `# BLOCKER: ${task.blocker}` : ''}
 
 # Key decisions:
 ${live.decisions.slice(-5).map(d => `# ${d}`).join('\n') || '# None logged.'}
+
+# Structured memory:
+${formatStructuredMemoryLines(live.structuredMemory).map(line => `# ${line.slice(2)}`).join('\n') || '# None logged.'}
 `;
 }
 
@@ -371,6 +418,9 @@ ${task.next_steps?.length ? `Next steps: ${task.next_steps.join(', ')}` : ''}
 
 ## Key decisions
 ${live.decisions.slice(-5).join('\n') || 'None logged.'}
+
+## Structured memory
+${formatStructuredMemoryText(live.structuredMemory)}
 `;
 }
 
@@ -404,9 +454,37 @@ ${guessBuildCommands(proj)}
 ## Decisions
 ${live.decisions.slice(-7).map(d => d.replace(/^\[.*?\]\s*/, '')).join('\n') || 'None logged.'}
 
+## Structured memory
+${formatStructuredMemoryText(live.structuredMemory)}
+
+${buildGuardrailSection(live.guardrails)}
+
 ## Recent changes
 ${live.changedFiles.slice(0, 15).map(f => `${f.status}: ${f.file}`).join('\n') || 'No uncommitted changes.'}
 `;
+}
+
+function getStructuredMemory(projectRoot) {
+  return {
+    blockers: getOpenMemoryItems(projectRoot, 'blocker', 5),
+    assumptions: getOpenMemoryItems(projectRoot, 'assumption', 5),
+    questions: getOpenMemoryItems(projectRoot, 'question', 5),
+    resolutions: getMemoryItems(projectRoot, { type: 'resolution', limit: 5 }),
+  };
+}
+
+function formatStructuredMemoryLines(memory) {
+  const lines = [];
+  for (const item of memory.blockers || []) lines.push(`- BLOCKER: ${item.message}`);
+  for (const item of memory.questions || []) lines.push(`- QUESTION: ${item.message}`);
+  for (const item of memory.assumptions || []) lines.push(`- ASSUMPTION: ${item.message}`);
+  for (const item of memory.resolutions || []) lines.push(`- RESOLUTION: ${item.message}`);
+  return lines;
+}
+
+function formatStructuredMemoryText(memory) {
+  const lines = formatStructuredMemoryLines(memory);
+  return lines.join('\n') || 'No structured memory logged yet.';
 }
 
 function guessBuildCommands(proj) {
