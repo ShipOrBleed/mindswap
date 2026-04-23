@@ -109,6 +109,22 @@ exports.test_sync_push_writes_shared_hub_snapshot = () => {
   }
 };
 
+exports.test_sync_push_json_still_executes_push = () => {
+  setup();
+  try {
+    seedLocalState();
+    const hubPath = path.join(dir, 'shared', 'sync-hub.json');
+
+    sync(dir, { push: true, json: true, hub: hubPath });
+
+    assert.ok(fs.existsSync(hubPath), 'json mode should still push the hub snapshot');
+    const hub = JSON.parse(fs.readFileSync(hubPath, 'utf-8'));
+    assert.strictEqual(hub.state.project.name, 'sync-app');
+  } finally {
+    teardown();
+  }
+};
+
 exports.test_sync_pull_merges_state_memory_and_history_once = () => {
   setup();
   try {
@@ -203,6 +219,51 @@ exports.test_sync_pull_merges_state_memory_and_history_once = () => {
     const afterSecondHistory = getHistory(dir, 20);
     assert.strictEqual(afterSecondHistory.filter(item => item.message === 'hub checkpoint').length, 1, 'pull should not duplicate shared history entries');
     assert.ok(afterSecondHistory.some(item => item.type === 'sync_pull'));
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_sync_pull_json_still_executes_pull = () => {
+  setup();
+  try {
+    seedLocalState();
+    const hubPath = path.join(dir, 'shared', 'sync-hub.json');
+    writeHubSnapshot(hubPath, {
+      version: '1.0.0',
+      updated_at: '2026-04-23T01:00:00.000Z',
+      branch: 'main',
+      state: {
+        project: {
+          name: 'sync-app',
+          root: '',
+          tech_stack: ['node.js', 'express', 'postgres'],
+          package_manager: 'npm',
+        },
+        current_task: {
+          description: 'work on shared sync',
+          started_at: '2026-04-23T00:00:00.000Z',
+          status: 'in_progress',
+          blocker: 'waiting on shared access',
+          next_steps: [],
+        },
+        last_checkpoint: {
+          timestamp: '2026-04-23T01:00:00.000Z',
+          message: 'hub checkpoint',
+          ai_tool: 'mindswap',
+          files_changed: [],
+          git_branch: 'main',
+          git_diff_summary: '',
+        },
+      },
+      history: [],
+      memory: { version: '1.0.0', items: [] },
+    });
+
+    sync(dir, { pull: true, json: true, hub: hubPath });
+
+    const state = readState(dir);
+    assert.strictEqual(state.project.tech_stack.includes('postgres'), true, 'json mode should still pull hub state');
   } finally {
     teardown();
   }

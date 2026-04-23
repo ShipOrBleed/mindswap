@@ -15,16 +15,15 @@ async function sync(projectRoot, opts = {}) {
 
   const hubPath = getSyncHubPath(projectRoot, opts);
   const mode = opts.pull ? 'pull' : opts.push ? 'push' : 'status';
-  const local = buildLocalSnapshot(projectRoot);
-  const hub = readHubSnapshot(hubPath);
-  const report = buildSyncReport({ local, hub, hubPath, mode });
-
-  if (opts.json) {
-    console.log(JSON.stringify(report, null, 2));
-    return;
-  }
+  let local = buildLocalSnapshot(projectRoot);
+  let hub = readHubSnapshot(hubPath);
+  let report = buildSyncReport({ local, hub, hubPath, mode });
 
   if (mode === 'status') {
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
     printSyncReport(report);
     return;
   }
@@ -42,10 +41,18 @@ async function sync(projectRoot, opts = {}) {
       type: 'sync_push',
       ai_tool: 'mindswap',
     });
+    local = buildLocalSnapshot(projectRoot);
+    hub = readHubSnapshot(hubPath);
+    report = buildSyncReport({ local, hub, hubPath, mode });
+    report.message = 'Local state has been pushed to the shared hub.';
+    report.status = 'in-sync';
+    report.conflict = false;
+    report.diverged = false;
     console.log(chalk.bold('\n⚡ Sync\n'));
     console.log(chalk.green(`  Pushed to ${hubPath}`));
     console.log(chalk.dim(`  Status: ${report.status}`));
     console.log();
+    if (opts.json) console.log(JSON.stringify(report, null, 2));
     return;
   }
 
@@ -68,10 +75,18 @@ async function sync(projectRoot, opts = {}) {
       type: 'sync_pull',
       ai_tool: 'mindswap',
     });
+    local = buildLocalSnapshot(projectRoot);
+    hub = readHubSnapshot(hubPath);
+    report = buildSyncReport({ local, hub, hubPath, mode });
+    report.message = 'Shared hub state has been pulled into the local project.';
+    report.status = 'in-sync';
+    report.conflict = false;
+    report.diverged = false;
     console.log(chalk.bold('\n⚡ Sync\n'));
     console.log(chalk.green(`  Pulled from ${hubPath}`));
     console.log(chalk.dim(`  Status: ${report.status}`));
     console.log();
+    if (opts.json) console.log(JSON.stringify(report, null, 2));
   }
 }
 
