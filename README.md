@@ -79,7 +79,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap init` | — | Initialize. Auto-detects 30+ frameworks, imports existing AI context files |
 | `mindswap switch <tool>` | `sw` | One-command tool switch — save + generate + open (cursor/claude/copilot/codex/windsurf) |
 | `mindswap done [msg]` | `d` | Mark task complete, archive to history, reset to idle |
-| `mindswap log <msg>` | `l` | Log a decision. Warns if it conflicts with existing decisions |
+| `mindswap log <msg>` | `l` | Log a memory item. Decisions warn on conflicts; use `--type` for blockers, assumptions, questions, and resolutions |
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
 | `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
@@ -102,6 +102,18 @@ mindswap reads recent Claude Code and Codex session files, normalizes them into 
 
 ### Decision conflict detection
 Log "NOT using Redis" then later "using Redis"? mindswap warns you. Also catches reversed choices and package.json contradictions.
+
+### Structured memory
+Not everything is a decision. mindswap now keeps structured memory for blockers, assumptions, open questions, and resolutions in `.mindswap/memory.json`, while keeping `decisions.log` for compatibility and conflict checks.
+
+```bash
+npx mindswap log "Need prod webhook secret" --type blocker
+npx mindswap log "Assume single-region rollout for MVP" --type assumption
+npx mindswap log "Should we rotate refresh tokens?" --type question
+npx mindswap log "Moved to JWT after auth review" --type resolution
+```
+
+Generated context files surface unresolved blockers and questions separately so the next AI does not have to infer them from free-form notes.
 
 ### Continuity diagnostics
 ```bash
@@ -128,13 +140,14 @@ Next.js, Remix, Astro, SolidJS, Angular, NestJS, Express, Fastify, Hono, Django,
 .mindswap/
 ├── HANDOFF.md       ← any AI reads this
 ├── state.json       ← machine-readable state
-├── decisions.log    ← WHY you made each decision
+├── decisions.log    ← decision log (kept for compatibility + conflicts)
+├── memory.json      ← structured memory: blockers, assumptions, questions, resolutions
 ├── config.json      ← your preferences
 ├── branches/        ← per-branch state (auto)
 └── history/         ← checkpoint timeline
 ```
 
-**Commit these** (handoff context): `state.json`, `decisions.log`, `config.json`, `HANDOFF.md`
+**Commit these** (handoff context): `state.json`, `decisions.log`, `memory.json`, `config.json`, `HANDOFF.md`
 
 **Don't commit** (auto-added to .gitignore): `history/`, `branches/`
 

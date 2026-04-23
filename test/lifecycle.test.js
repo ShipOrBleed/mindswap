@@ -4,6 +4,7 @@ const path = require('path');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir, writeState, readState, getDefaultState, getHistory } = require('../src/state');
 const { done, reset } = require('../src/lifecycle');
+const { readMemory } = require('../src/memory');
 
 let dir;
 function setup() {
@@ -94,5 +95,20 @@ exports.test_reset_full_clears_decisions = async () => {
     const decisions = fs.readFileSync(path.join(dir, '.mindswap', 'decisions.log'), 'utf-8');
     assert.ok(!decisions.includes('chose JWT'));
     assert.ok(decisions.includes('Decision Log'));
+  } finally { teardown(); }
+};
+
+exports.test_reset_full_clears_structured_memory = async () => {
+  setup();
+  try {
+    fs.writeFileSync(path.join(dir, '.mindswap', 'memory.json'), JSON.stringify({
+      version: '1.0.0',
+      items: [{ id: '1', type: 'blocker', message: 'Need Stripe webhook secret', status: 'open' }],
+    }, null, 2));
+    console.log = () => {};
+    await reset(dir, { full: true });
+    console.log = global.console.log;
+    const memory = readMemory(dir);
+    assert.strictEqual(memory.items.length, 0);
   } finally { teardown(); }
 };
