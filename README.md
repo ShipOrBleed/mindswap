@@ -84,7 +84,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
-| `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md on file changes |
+| `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |
 | `mindswap reset` | `r` | Clear task state. Decisions preserved. `--full` to clear everything |
 
 ## Key features
@@ -97,6 +97,8 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 ### Branch-aware state
 Each git branch has its own state. Switch to `feat/payments` — it loads that branch's task and decisions. Switch back to `main` — your main state is restored.
 
+### Team mode
+Set `MINDSWAP_TEAM=1` to make history author-aware and surface a team handoff section in generated context files.
 ### Native session normalization
 mindswap reads recent Claude Code and Codex session files, normalizes them into a structured model, and surfaces the last session's findings, blockers, and edited files in `HANDOFF.md` and MCP context.
 
@@ -130,6 +132,9 @@ npx mindswap --check   # runs tests, captures results
 # Tests: ✓ 47 passed, 0 failed
 ```
 The next AI knows "tests were passing" or exactly what's broken.
+
+### Auto-sync
+`mindswap switch` records session start/end hooks when configured, and `mindswap watch --save --all` can run a full save + context refresh loop for deeper IDE/tool integration.
 
 ### 30+ frameworks detected
 Next.js, Remix, Astro, SolidJS, Angular, NestJS, Express, Fastify, Hono, Django, FastAPI, Flask, Gin, Echo, GoFr, Fiber, Actix, Axum, Rails, Spring Boot, and more. Plus databases, monorepo tools, CI/CD, and infrastructure.

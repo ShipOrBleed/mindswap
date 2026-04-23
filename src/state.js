@@ -157,9 +157,14 @@ function addToHistory(projectRoot, entry) {
   const historyDir = path.join(dataDir, HISTORY_DIR);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const filename = `checkpoint-${timestamp}-${randomSuffix()}.json`;
+  let normalizedEntry = entry;
+  try {
+    const { annotateHistoryEntry } = require('./team');
+    normalizedEntry = annotateHistoryEntry(projectRoot, entry);
+  } catch {}
   fs.writeFileSync(
     path.join(historyDir, filename),
-    JSON.stringify(entry, null, 2),
+    JSON.stringify(normalizedEntry, null, 2),
     'utf-8'
   );
   return filename;

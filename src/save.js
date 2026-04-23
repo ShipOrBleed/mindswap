@@ -8,6 +8,7 @@ const { detectLastStatus, runChecks } = require('./build-test');
 const { generate } = require('./generate');
 const { calculateQualityScore } = require('./narrative');
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
+const { annotateHistoryEntry } = require('./team');
 
 /**
  * THE one command. Auto-detects everything, saves full state, generates all context files.
@@ -124,13 +125,13 @@ async function save(projectRoot, opts = {}) {
   updateState(projectRoot, updates);
 
   // ─── 7. Save to history ───
-  addToHistory(projectRoot, {
+  addToHistory(projectRoot, annotateHistoryEntry(projectRoot, {
     timestamp: now,
     message: message,
     ai_tool: aiTool,
     task: task,
     ...gitInfo,
-  });
+  }));
 
   // ─── 8. Generate ALL context files ───
   if (!quiet) console.log(chalk.dim('  Generating context files...'));

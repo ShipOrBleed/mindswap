@@ -193,6 +193,11 @@ program
   .alias('w')
   .description('Watch for file changes and auto-update HANDOFF.md.')
   .option('-i, --interval <ms>', 'Debounce interval in ms', '2000')
+  .option('--all', 'Refresh all generated context files on each change')
+  .option('--save', 'Run a full save cycle on each change')
+  .option('--tool <tool>', 'Associate watcher lifecycle with a specific AI tool')
+  .option('-m, --message <msg>', 'Session note for automatic watcher start/end saves')
+  .option('--no-hooks', 'Skip automatic session start/end hooks')
   .action(async (opts) => {
     try {
       await watch(process.cwd(), opts);
@@ -208,6 +213,8 @@ program
   .alias('sw')
   .description('Switch AI tool — save + generate context + open. Tools: cursor, claude, copilot, codex, windsurf')
   .option('-m, --message <msg>', 'Checkpoint message')
+  .option('--from <tool>', 'Override the current tool for the session-end hook')
+  .option('--no-hooks', 'Skip automatic session start/end hooks')
   .option('--no-open', 'Don\'t try to open the tool')
   .action(async (tool, opts) => {
     try {
