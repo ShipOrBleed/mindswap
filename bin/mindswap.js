@@ -13,6 +13,10 @@ const { log } = require('../src/decisions');
 const { done, reset } = require('../src/lifecycle');
 const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
+const { resume } = require('../src/resume');
+const { ask } = require('../src/ask');
+const { contracts } = require('../src/contracts');
+const { sync } = require('../src/sync');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
@@ -250,6 +254,67 @@ program
   .action(async (opts) => {
     try {
       await summary(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── ask ───
+program
+  .command('ask <question...>')
+  .description('Answer a question from project memory using semantic search and cited sources.')
+  .option('--json', 'Output as JSON')
+  .action(async (question, opts) => {
+    try {
+      await ask(process.cwd(), question, opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── contracts ───
+program
+  .command('contracts')
+  .description('Emit machine-readable interface contracts for the current workstream.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await contracts(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── sync ───
+program
+  .command('sync')
+  .description('Push or pull shared hub state. Without flags, prints sync status.')
+  .option('--push', 'Push local state to the shared hub')
+  .option('--pull', 'Pull shared state from the hub')
+  .option('--force', 'Override sync conflicts')
+  .option('--hub <path>', 'Path to the sync hub JSON file')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await sync(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── resume ───
+program
+  .command('resume')
+  .description('Action-oriented briefing — state, blockers, and the next best move.')
+  .option('--compact', 'Short, recommendation-first briefing')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await resume(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

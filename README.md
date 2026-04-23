@@ -14,6 +14,7 @@ One command captures your entire project state. Switch between Claude Code, Curs
 ```bash
 npm install mindswap --save-dev
 npx mindswap init        # once — auto-detects everything
+npx mindswap ask "Why did we choose JWT?"  # answer from project memory with cited matches
 npx mindswap             # save state when switching tools
 npx mindswap doctor      # diagnose setup, context freshness, and gaps
 npx mindswap mcp-install # enable MCP for Claude Code / Cursor
@@ -64,6 +65,7 @@ It auto-detects your task from the branch name, captures git state, logs depende
 
 ```bash
 npx mindswap init     # once per project
+npx mindswap resume   # get an action-oriented start-of-session briefing
 npx mindswap doctor   # sanity-check setup and context health
 npx mindswap          # when switching tools
 npx mindswap done     # when feature is complete
@@ -71,7 +73,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 11 commands
+## 15 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -82,6 +84,10 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap log <msg>` | `l` | Log a memory item. Decisions warn on conflicts; use `--type` for blockers, assumptions, questions, and resolutions |
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
 | `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
+| `mindswap resume` | — | Action-oriented briefing — state, blockers, and the next best move. `--compact` / `--json` |
+| `mindswap ask <question>` | — | Semantic question answering from project memory and history. `--json` for machine use |
+| `mindswap contracts` | — | Emit machine-readable interface contracts for the current workstream |
+| `mindswap sync` | — | Push, pull, or inspect shared hub state. `--push`, `--pull`, `--force`, `--hub` |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |
@@ -105,6 +111,15 @@ mindswap reads recent Claude Code and Codex session files, normalizes them into 
 ### Decision conflict detection
 Log "NOT using Redis" then later "using Redis"? mindswap warns you. Also catches reversed choices and package.json contradictions.
 
+### Architectural guardrails
+When your diff touches code that contradicts a recorded decision, mindswap warns you in `save`, `doctor`, generated handoff files, and MCP context. It is a proactive drift check, not just a static conflict log.
+
+### Interface contracts
+`mindswap contracts` emits a machine-readable JSON contract for the active workstream, including boundaries, blockers, assumptions, and recent history so another agent can resume without re-reading the whole repo.
+
+### Shared sync
+`mindswap sync` can push or pull a local JSON hub file so teams can share continuity state across machines. Conflicts are explicit, and `doctor` surfaces the sync health.
+
 ### Structured memory
 Not everything is a decision. mindswap now keeps structured memory for blockers, assumptions, open questions, and resolutions in `.mindswap/memory.json`, while keeping `decisions.log` for compatibility and conflict checks.
 
@@ -122,6 +137,12 @@ Generated context files surface unresolved blockers and questions separately so 
 npx mindswap doctor
 ```
 Checks whether mindswap is initialized correctly, whether generated handoff files are stale, whether git hooks are installed, whether AI-tool-specific context files are missing, and whether conflicts or weak continuity signals need attention.
+
+### Semantic ask
+```bash
+npx mindswap ask "Why did we choose JWT?"
+```
+Answers natural-language questions against decisions, history, memory, and recent session context, then cites the strongest matching project records.
 
 ### Safe merge
 Already have a CLAUDE.md? mindswap appends its section inside `<!-- mindswap:start/end -->` markers. Your content is never touched.

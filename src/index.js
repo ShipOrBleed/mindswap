@@ -7,6 +7,10 @@ const { log } = require('./decisions');
 const { done, reset } = require('./lifecycle');
 const { switchTool } = require('./switch');
 const { summary } = require('./summary');
+const { resume } = require('./resume');
+const { ask } = require('./ask');
+const { contracts } = require('./contracts');
+const { sync } = require('./sync');
 const { save } = require('./save');
 const { readState, writeState, updateState, getHistory } = require('./state');
 const { detectProject } = require('./detect');
@@ -19,6 +23,7 @@ const { importSessions } = require('./session-import');
 const { scanForSecrets, redactSecrets } = require('./secrets');
 const { detectMonorepo } = require('./monorepo');
 const { parseNativeSessions } = require('./session-parser');
+const { analyzeGuardrails } = require('./guardrails');
 const { pr } = require('./pr');
 const { readMemory, appendMemoryItem, getMemoryItems } = require('./memory');
 const { doctor } = require('./doctor');
@@ -35,6 +40,10 @@ module.exports = {
   save,
   switchTool,
   summary,
+  resume,
+  ask,
+  contracts,
+  sync,
   readState,
   writeState,
   updateState,
@@ -57,6 +66,7 @@ module.exports = {
   redactSecrets,
   detectMonorepo,
   parseNativeSessions,
+  analyzeGuardrails,
   pr,
   readMemory,
   appendMemoryItem,

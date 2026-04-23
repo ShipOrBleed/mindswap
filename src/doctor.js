@@ -8,6 +8,8 @@ const { detectAITool } = require('./detect-ai');
 const { detectLastStatus } = require('./build-test');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { calculateQualityScore } = require('./narrative');
+const { analyzeGuardrails } = require('./guardrails');
+const { getSyncHubPath, readHubSnapshot, buildSyncReport, buildLocalSnapshot } = require('./sync');
 
 async function doctor(projectRoot, opts = {}) {
   const report = analyzeProjectHealth(projectRoot);
@@ -155,9 +157,33 @@ function analyzeProjectHealth(projectRoot) {
     addCheck(checks, 'issue', `${depConflicts.length} dependency conflict${depConflicts.length === 1 ? '' : 's'} detected`, depConflicts[0].reason);
   }
 
+  const guardrails = analyzeGuardrails(projectRoot);
+  if (guardrails.warnings.length === 0) {
+    addCheck(checks, 'ok', 'no architectural drift signals detected');
+  } else {
+    addCheck(checks, 'warning', `${guardrails.warnings.length} architectural drift signal${guardrails.warnings.length === 1 ? '' : 's'} detected`, guardrails.warnings[0].reason);
+  }
+
   const aiContextStatus = inspectAIContextFiles(projectRoot);
   for (const item of aiContextStatus) {
     addCheck(checks, item.level, item.message, item.fix);
+  }
+
+  const hubPath = getSyncHubPath(projectRoot);
+  if (fs.existsSync(hubPath)) {
+    const report = buildSyncReport({
+      local: buildLocalSnapshot(projectRoot),
+      hub: readHubSnapshot(hubPath),
+      hubPath,
+      mode: 'status',
+    });
+    if (report.conflict) {
+      addCheck(checks, 'warning', 'shared sync hub is diverged from local state', report.message);
+    } else {
+      addCheck(checks, 'ok', `shared sync hub status: ${report.status}`);
+    }
+  } else if (process.env.MINDSWAP_SYNC_HUB) {
+    addCheck(checks, 'warning', 'sync hub path is configured but the hub file is missing', `Create or point MINDSWAP_SYNC_HUB at a writable JSON file (${hubPath}).`);
   }
 
   if (state) {

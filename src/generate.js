@@ -9,6 +9,7 @@ const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('.
 const { teamSection } = require('./team');
 const { getOpenMemoryItems, getMemoryItems } = require('./memory');
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
+const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 
 const SECTION_START = '<!-- mindswap:start -->';
 const SECTION_END = '<!-- mindswap:end -->';
@@ -181,6 +182,10 @@ function gatherLiveData(projectRoot) {
   data.structuredMemory = getStructuredMemory(projectRoot);
   data.history = getHistory(projectRoot, 5);
   data.nativeSessions = parseNativeSessions(projectRoot);
+  data.guardrails = analyzeGuardrails(projectRoot, {
+    changedFiles: data.changedFiles,
+    diffContent: data.diff,
+  });
   return data;
 }
 
@@ -284,6 +289,11 @@ ${live.branch ? `- **Git branch**: ${live.branch}` : ''}
     }
   }
 
+  const guardrailSection = buildGuardrailSection(live.guardrails);
+  if (guardrailSection) {
+    md += `\n${guardrailSection}\n`;
+  }
+
   if (live.diffSummary && live.diffSummary !== 'No changes') {
     md += `\n## Diff summary\n\`\`\`\n${live.diffSummary}\n\`\`\`\n`;
   }
@@ -357,6 +367,8 @@ ${live.decisions.slice(-5).join('\n') || 'None logged.'}
 
 ## Structured memory
 ${formatStructuredMemoryText(live.structuredMemory)}
+
+${buildGuardrailSection(live.guardrails)}
 
 ## Recent changes
 ${live.changedFiles.slice(0, 15).map(f => `${f.status}: ${f.file}`).join('\n') || 'No uncommitted changes.'}
@@ -444,6 +456,8 @@ ${live.decisions.slice(-7).map(d => d.replace(/^\[.*?\]\s*/, '')).join('\n') || 
 
 ## Structured memory
 ${formatStructuredMemoryText(live.structuredMemory)}
+
+${buildGuardrailSection(live.guardrails)}
 
 ## Recent changes
 ${live.changedFiles.slice(0, 15).map(f => `${f.status}: ${f.file}`).join('\n') || 'No uncommitted changes.'}
