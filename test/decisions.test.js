@@ -4,6 +4,7 @@ const path = require('path');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir } = require('../src/state');
 const { log } = require('../src/decisions');
+const { readMemory } = require('../src/memory');
 
 let dir;
 function setup() {
@@ -82,5 +83,19 @@ exports.test_log_detects_conflicts = async () => {
 
     assert.ok(output.includes('conflict') || output.includes('Conflict') || output.includes('Contradiction'),
       'should warn about conflict');
+  } finally { teardown(); }
+};
+
+exports.test_log_writes_structured_memory = async () => {
+  setup();
+  try {
+    console.log = () => {};
+    await log(dir, 'need to validate auth callback assumptions', { type: 'assumption', tag: 'auth' });
+    console.log = global.console.log;
+
+    const memory = readMemory(dir);
+    const assumption = memory.items.find(item => item.type === 'assumption');
+    assert.ok(assumption, 'should persist assumption in memory.json');
+    assert.strictEqual(assumption.tag, 'auth');
   } finally { teardown(); }
 };

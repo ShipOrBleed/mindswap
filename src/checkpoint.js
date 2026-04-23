@@ -3,6 +3,7 @@ const { readState, updateState, addToHistory } = require('./state');
 const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getRecentCommits, getLastCommitInfo, getDiffContent } = require('./git');
 const { detectAITool } = require('./detect-ai');
 const { runChecks, detectLastStatus } = require('./build-test');
+const { appendMemoryItem } = require('./memory');
 
 async function checkpoint(projectRoot, message, opts = {}) {
   const now = new Date().toISOString();
@@ -64,6 +65,16 @@ async function checkpoint(projectRoot, message, opts = {}) {
   if (buildTest.build) updates.build_status = buildTest.build;
 
   const newState = updateState(projectRoot, updates);
+
+  if (opts.blocker) {
+    appendMemoryItem(projectRoot, {
+      type: 'blocker',
+      tag: 'checkpoint',
+      message: opts.blocker,
+      created_at: now,
+      source: 'checkpoint',
+    });
+  }
 
   // Save to history
   const historyEntry = {

@@ -87,8 +87,9 @@ program
 program
   .command('log <message>')
   .alias('l')
-  .description('Log a decision. Warns if it conflicts with existing decisions.')
+  .description('Log a memory item. Decisions warn on conflicts; blockers/questions/assumptions/resolutions are stored in structured memory.')
   .option('--tag <tag>', 'Tag (e.g., architecture, database, auth)')
+  .option('--type <type>', 'Memory type: decision, blocker, assumption, question, resolution')
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);

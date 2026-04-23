@@ -1,5 +1,8 @@
 const assert = require('assert');
-const { extractProjectDescription, extractDecisionsFromContent } = require('../src/init');
+const fs = require('fs');
+const path = require('path');
+const { createTempProject, cleanup } = require('./helpers');
+const { init, extractProjectDescription, extractDecisionsFromContent } = require('../src/init');
 
 exports.test_extractProjectDescription_basic = () => {
   const readme = '# My App\n\nA dashboard for managing cloud resources.\n\n## Features\n- Auth\n- Dashboard';
@@ -50,4 +53,16 @@ exports.test_extractDecisions_limits_results = () => {
   const content = '# Rules\n' + lines.join('\n');
   const decisions = extractDecisionsFromContent(content);
   assert.ok(decisions.length <= 10, `should limit to 10, got ${decisions.length}`);
+};
+
+exports.test_init_creates_memory_json = async () => {
+  const dir = createTempProject('init-memory-test');
+  try {
+    console.log = () => {};
+    await init(dir, { noHooks: true });
+    console.log = global.console.log;
+    assert.ok(fs.existsSync(path.join(dir, '.mindswap', 'memory.json')));
+  } finally {
+    cleanup(dir);
+  }
 };

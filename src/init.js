@@ -5,6 +5,7 @@ const { ensureDataDir, writeState, getDefaultState } = require('./state');
 const { detectProject } = require('./detect');
 const { isGitRepo, getCurrentBranch } = require('./git');
 const { detectMonorepo } = require('./monorepo');
+const { ensureMemory, writeMemory, getDefaultMemory, appendMemoryItem } = require('./memory');
 
 async function init(projectRoot, opts = {}) {
   console.log(chalk.bold('\n⚡ Initializing mindswap...\n'));
@@ -70,6 +71,10 @@ async function init(projectRoot, opts = {}) {
   );
   console.log(chalk.dim('  Created:    ') + chalk.green('.mindswap/decisions.log'));
 
+  ensureMemory(projectRoot);
+  writeMemory(projectRoot, getDefaultMemory());
+  console.log(chalk.dim('  Created:    ') + chalk.green('.mindswap/memory.json'));
+
   // 6. Import existing AI context files
   const imported = importExistingContext(projectRoot, dataDir);
   if (imported > 0) {
@@ -86,10 +91,24 @@ async function init(projectRoot, opts = {}) {
     for (const session of sessions) {
       for (const d of session.decisions) {
         fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${session.tool}] ${d}\n`);
+        appendMemoryItem(projectRoot, {
+          type: 'decision',
+          tag: `imported:${session.tool}`,
+          message: d,
+          created_at: timestamp,
+          source: 'import',
+        });
         sessionImported++;
       }
       for (const c of session.context) {
         fs.appendFileSync(decisionsPath, `[${timestamp}] [context:${session.tool}] ${c}\n`);
+        appendMemoryItem(projectRoot, {
+          type: 'assumption',
+          tag: `context:${session.tool}`,
+          message: c,
+          created_at: timestamp,
+          source: 'import',
+        });
         sessionImported++;
       }
     }
@@ -165,6 +184,13 @@ function importExistingContext(projectRoot, dataDir) {
           const decisions = extractDecisionsFromContent(content);
           for (const d of decisions) {
             fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${file.source}] ${d}\n`);
+            appendMemoryItem(projectRoot, {
+              type: 'decision',
+              tag: `imported:${file.source}`,
+              message: d,
+              created_at: timestamp,
+              source: 'import',
+            });
             imported++;
           }
         }
@@ -175,6 +201,13 @@ function importExistingContext(projectRoot, dataDir) {
         const decisions = extractDecisionsFromContent(content);
         for (const d of decisions) {
           fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${file.source}] ${d}\n`);
+          appendMemoryItem(projectRoot, {
+            type: 'decision',
+            tag: `imported:${file.source}`,
+            message: d,
+            created_at: timestamp,
+            source: 'import',
+          });
           imported++;
         }
       } catch {}

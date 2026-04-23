@@ -3,6 +3,7 @@ const path = require('path');
 const chalk = require('chalk');
 const { getDataDir } = require('./state');
 const { checkConflicts } = require('./conflicts');
+const { appendMemoryItem, normalizeType } = require('./memory');
 
 async function log(projectRoot, message, opts = {}) {
   const dataDir = getDataDir(projectRoot);
@@ -17,10 +18,20 @@ async function log(projectRoot, message, opts = {}) {
   const decisionsPath = path.join(dataDir, 'decisions.log');
   const timestamp = new Date().toISOString();
   const tag = opts.tag || 'general';
+  const type = normalizeType(opts.type || 'decision');
 
-  const entry = `[${timestamp}] [${tag}] ${message}`;
+  if (type === 'decision') {
+    const entry = `[${timestamp}] [${tag}] ${message}`;
+    fs.appendFileSync(decisionsPath, entry + '\n', 'utf-8');
+  }
 
-  fs.appendFileSync(decisionsPath, entry + '\n', 'utf-8');
+  const memoryItem = appendMemoryItem(projectRoot, {
+    type,
+    tag,
+    message,
+    created_at: timestamp,
+    source: 'cli',
+  });
 
   // Auto-regenerate HANDOFF.md
   try {
@@ -29,12 +40,18 @@ async function log(projectRoot, message, opts = {}) {
   } catch {}
 
   console.log(chalk.bold('\n⚡ Decision logged\n'));
+  console.log(chalk.dim('  Type:    ') + chalk.white(type));
   console.log(chalk.dim('  Tag:     ') + chalk.white(tag));
   console.log(chalk.dim('  Message: ') + chalk.white(message));
-  console.log(chalk.dim('  File:    ') + chalk.green('.mindswap/decisions.log'));
+  console.log(chalk.dim('  Memory:  ') + chalk.green('.mindswap/memory.json'));
+  if (type === 'decision') {
+    console.log(chalk.dim('  File:    ') + chalk.green('.mindswap/decisions.log'));
+  } else {
+    console.log(chalk.dim('  Status:  ') + chalk.white(memoryItem.status));
+  }
 
   // Warn about conflicts
-  if (conflicts.length > 0) {
+  if (type === 'decision' && conflicts.length > 0) {
     console.log(chalk.bold.yellow('\n  ⚠  Potential conflicts:'));
     for (const c of conflicts) {
       console.log(chalk.yellow(`    • ${c.reason}`));
