@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 const { readState, updateState, addToHistory, getDataDir } = require('./state');
+const { ensureMemory, writeMemory, getDefaultMemory } = require('./memory');
 
 async function done(projectRoot, message) {
   const dataDir = getDataDir(projectRoot);
@@ -95,6 +96,8 @@ async function reset(projectRoot, opts = {}) {
       `# Decision Log — ${projectName}\n# Tracks WHY decisions were made so the next AI knows.\n# Format: [timestamp] [tag] message\n\n`,
       'utf-8'
     );
+    ensureMemory(projectRoot);
+    writeMemory(projectRoot, getDefaultMemory());
   }
 
   try {

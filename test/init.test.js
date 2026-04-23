@@ -1,5 +1,8 @@
 const assert = require('assert');
-const { extractProjectDescription, extractDecisionsFromContent } = require('../src/init');
+const fs = require('fs');
+const path = require('path');
+const { createTempProject, cleanup } = require('./helpers');
+const { init, extractProjectDescription, extractDecisionsFromContent } = require('../src/init');
 
 exports.test_extractProjectDescription_basic = () => {
   const readme = '# My App\n\nA dashboard for managing cloud resources.\n\n## Features\n- Auth\n- Dashboard';
@@ -50,4 +53,50 @@ exports.test_extractDecisions_limits_results = () => {
   const content = '# Rules\n' + lines.join('\n');
   const decisions = extractDecisionsFromContent(content);
   assert.ok(decisions.length <= 10, `should limit to 10, got ${decisions.length}`);
+};
+
+exports.test_init_creates_memory_json = async () => {
+  const dir = createTempProject('init-memory-test');
+  try {
+    console.log = () => {};
+    await init(dir, { noHooks: true });
+    console.log = global.console.log;
+    assert.ok(fs.existsSync(path.join(dir, '.mindswap', 'memory.json')));
+  } finally {
+    cleanup(dir);
+  }
+};
+
+exports.test_init_no_hooks_skips_git_hook_install = async () => {
+  const dir = createTempProject('init-no-hooks-test');
+  try {
+    console.log = () => {};
+    await init(dir, { hooks: false });
+    console.log = global.console.log;
+    assert.ok(!fs.existsSync(path.join(dir, '.git', 'hooks', 'post-commit')));
+  } finally {
+    cleanup(dir);
+  }
+};
+
+exports.test_init_deduplicates_cursor_imports = async () => {
+  const dir = createTempProject('init-dedupe-test');
+  try {
+    fs.mkdirSync(path.join(dir, '.cursor', 'rules'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.cursor', 'rules', 'team.mdc'),
+      '# Rules\n- Always use TypeScript strict mode for all new code.\n',
+      'utf-8'
+    );
+
+    console.log = () => {};
+    await init(dir, { noHooks: true, hooks: false });
+    console.log = global.console.log;
+
+    const memory = JSON.parse(fs.readFileSync(path.join(dir, '.mindswap', 'memory.json'), 'utf-8'));
+    const matches = memory.items.filter(item => item.message.includes('TypeScript strict mode'));
+    assert.strictEqual(matches.length, 1, `expected one imported memory item, got ${matches.length}`);
+  } finally {
+    cleanup(dir);
+  }
 };

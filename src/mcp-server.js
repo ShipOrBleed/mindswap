@@ -11,6 +11,8 @@ const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
 const { importSessions } = require('./session-import');
+const { appendMemoryItem, getOpenMemoryItems, getRecentMemoryItems } = require('./memory');
+const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 
 /**
  * Start the mindswap MCP server.
@@ -56,6 +58,12 @@ async function startMCPServer() {
       summary: z.string().describe('Brief summary of what was done in this session'),
       decisions: z.array(z.string()).optional()
         .describe('Key decisions made during this session (e.g., "chose JWT over sessions for stateless API")'),
+      assumptions: z.array(z.string()).optional()
+        .describe('Assumptions made during this session that should carry forward'),
+      questions: z.array(z.string()).optional()
+        .describe('Open questions that remain unresolved'),
+      resolutions: z.array(z.string()).optional()
+        .describe('Resolved items or conclusions reached during this session'),
       next_steps: z.array(z.string()).optional()
         .describe('What should be done next'),
       blocker: z.string().optional()
@@ -63,8 +71,8 @@ async function startMCPServer() {
       task_status: z.enum(['in_progress', 'blocked', 'paused', 'completed']).optional()
         .describe('Update task status'),
     },
-    async ({ summary, decisions, next_steps, blocker, task_status }) => {
-      return saveContext(projectRoot, { summary, decisions, next_steps, blocker, task_status });
+    async ({ summary, decisions, assumptions, questions, resolutions, next_steps, blocker, task_status }) => {
+      return saveContext(projectRoot, { summary, decisions, assumptions, questions, resolutions, next_steps, blocker, task_status });
     }
   );
 
@@ -145,6 +153,11 @@ function getContext(projectRoot, focus, compact) {
       sections.push(`## Decisions\n${stripped.map(d => `- ${d}`).join('\n')}`);
     }
 
+    const memoryLines = formatMemorySection(projectRoot);
+    if (memoryLines.length > 0) {
+      sections.push(`## Structured Memory\n${memoryLines.join('\n')}`);
+    }
+
     // Conflicts
     const conflicts = findAllConflicts(projectRoot);
     const depConflicts = checkDepsVsDecisions(projectRoot);
@@ -168,6 +181,13 @@ function getContext(projectRoot, focus, compact) {
     // Changed files (grouped)
     if (liveData.changedFiles.length > 0) {
       sections.push(`## Uncommitted Changes\n${liveData.changedFiles.length} files changed`);
+    }
+  }
+
+  if (liveData.nativeSessions?.length > 0) {
+    const sessionSummary = getSessionSummary(liveData.nativeSessions);
+    if (sessionSummary.trim()) {
+      sections.push(sessionSummary.trim());
     }
   }
 
@@ -201,7 +221,7 @@ function getContext(projectRoot, focus, compact) {
   };
 }
 
-function saveContext(projectRoot, { summary, decisions, next_steps, blocker, task_status }) {
+function saveContext(projectRoot, { summary, decisions, assumptions, questions, resolutions, next_steps, blocker, task_status }) {
   const dataDir = getDataDir(projectRoot);
   if (!fs.existsSync(dataDir)) {
     return {
@@ -242,7 +262,34 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
     const decisionsPath = path.join(dataDir, 'decisions.log');
     for (const d of decisions) {
       fs.appendFileSync(decisionsPath, `[${now}] [ai-session] ${d}\n`);
+      appendMemoryItem(projectRoot, { type: 'decision', tag: 'ai-session', message: d, created_at: now, source: 'mcp' });
     }
+  }
+  if (assumptions?.length > 0) {
+    for (const item of assumptions) {
+      appendMemoryItem(projectRoot, { type: 'assumption', tag: 'ai-session', message: item, created_at: now, source: 'mcp' });
+    }
+  }
+  if (questions?.length > 0) {
+    for (const item of questions) {
+      appendMemoryItem(projectRoot, { type: 'question', tag: 'ai-session', message: item, created_at: now, source: 'mcp' });
+    }
+  }
+  if (resolutions?.length > 0) {
+    for (const item of resolutions) {
+      appendMemoryItem(projectRoot, {
+        type: 'resolution',
+        tag: 'ai-session',
+        message: item,
+        created_at: now,
+        resolved_at: now,
+        status: 'resolved',
+        source: 'mcp',
+      });
+    }
+  }
+  if (blocker) {
+    appendMemoryItem(projectRoot, { type: 'blocker', tag: 'ai-session', message: blocker, created_at: now, source: 'mcp' });
   }
 
   // Save to history
@@ -251,6 +298,9 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
     message: summary || 'saved via MCP',
     type: 'mcp_save',
     decisions: decisions || [],
+    assumptions: assumptions || [],
+    questions: questions || [],
+    resolutions: resolutions || [],
     next_steps: next_steps || [],
   });
 
@@ -265,6 +315,9 @@ function saveContext(projectRoot, { summary, decisions, next_steps, blocker, tas
   const saved = [];
   if (summary) saved.push('summary');
   if (decisions?.length) saved.push(`${decisions.length} decisions`);
+  if (assumptions?.length) saved.push(`${assumptions.length} assumptions`);
+  if (questions?.length) saved.push(`${questions.length} questions`);
+  if (resolutions?.length) saved.push(`${resolutions.length} resolutions`);
   if (next_steps?.length) saved.push('next steps');
   if (blocker) saved.push('blocker');
   if (task_status) saved.push(`status → ${task_status}`);
@@ -321,6 +374,15 @@ function searchContext(projectRoot, query, type) {
 
   // Search current state
   if (type === 'all') {
+    const memoryItems = getRecentMemoryItems(projectRoot, 50);
+    for (const item of memoryItems) {
+      addScoredResult(results, seen, {
+        type: `memory:${item.type}`,
+        content: `${item.type}: ${item.message} [${item.status}]`,
+        source: 'memory',
+      }, queryTokens, item.status === 'open' ? 1.15 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`);
+    }
+
     const state = readState(projectRoot);
     if (state.current_task?.description) {
       addScoredResult(results, seen, {
@@ -346,6 +408,23 @@ function searchContext(projectRoot, query, type) {
   }
 
   if (type === 'all') {
+    const nativeSessions = parseNativeSessions(projectRoot) || [];
+    for (const session of nativeSessions) {
+      const combined = [
+        session.summary || '',
+        session.blockers?.join(' '),
+        session.failures?.join(' '),
+        session.fileEdits?.join(' '),
+        session.toolCalls?.join(' '),
+        session.messages?.map(message => message.text).join(' '),
+      ].filter(Boolean).join(' ');
+      addScoredResult(results, seen, {
+        type: 'native-session',
+        content: `${session.tool}${session.timestamp ? ` @ ${session.timestamp}` : ''}: ${session.summary || 'session context'}`,
+        source: session.tool,
+      }, queryTokens, 0.9, combined || session.rawText || session.tool);
+    }
+
     const imported = importSessions(projectRoot) || [];
     for (const session of imported) {
       const sourceLabel = session.tool || 'session';
@@ -390,6 +469,7 @@ function gatherLiveData(projectRoot) {
     recentCommits: [],
     decisions: [],
     history: [],
+    nativeSessions: [],
   };
 
   if (isGitRepo(projectRoot)) {
@@ -405,7 +485,9 @@ function gatherLiveData(projectRoot) {
       .filter(l => l.startsWith('['));
   }
 
+  data.structuredMemory = getRecentMemoryItems(projectRoot, 20);
   data.history = getHistory(projectRoot, 5);
+  data.nativeSessions = parseNativeSessions(projectRoot);
   return data;
 }
 
@@ -482,4 +564,15 @@ const QUERY_ALIASES = {
   ui: ['frontend', 'component', 'page', 'view'],
 };
 
-module.exports = { startMCPServer, searchContext, tokenize, scoreText };
+function formatMemorySection(projectRoot) {
+  const lines = [];
+  for (const item of getOpenMemoryItems(projectRoot, 'blocker', 5)) lines.push(`- BLOCKER: ${item.message}`);
+  for (const item of getOpenMemoryItems(projectRoot, 'question', 5)) lines.push(`- QUESTION: ${item.message}`);
+  for (const item of getOpenMemoryItems(projectRoot, 'assumption', 5)) lines.push(`- ASSUMPTION: ${item.message}`);
+  for (const item of getRecentMemoryItems(projectRoot, 10).filter(item => item.type === 'resolution').slice(-5)) {
+    lines.push(`- RESOLUTION: ${item.message}`);
+  }
+  return lines;
+}
+
+module.exports = { startMCPServer, searchContext, tokenize, scoreText, formatMemorySection };

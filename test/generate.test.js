@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir, writeState, getDefaultState } = require('../src/state');
 const { generate, safeWriteContextFile, SECTION_START, SECTION_END } = require('../src/generate');
@@ -24,6 +25,16 @@ function setup() {
     '# Decisions\n\n[2026-01-01T00:00:00Z] [auth] chose JWT over sessions\n', 'utf-8');
 }
 function teardown() { cleanup(dir); }
+
+function withFakeHome(homeDir, fn) {
+  const original = os.homedir;
+  os.homedir = () => homeDir;
+  try {
+    return fn();
+  } finally {
+    os.homedir = original;
+  }
+}
 
 exports.test_generate_creates_handoff_md = async () => {
   setup();
@@ -107,4 +118,29 @@ exports.test_generate_claude_does_not_overwrite_existing = async () => {
     assert.ok(content.includes('Never use var'));
     assert.ok(content.includes(SECTION_START));
   } finally { teardown(); }
+};
+
+exports.test_generate_includes_native_session_summary = async () => {
+  setup();
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mindswap-home-'));
+  try {
+    const sessionPath = path.join(homeDir, '.claude', 'projects', 'match-1', 'session.jsonl');
+    fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+    fs.writeFileSync(sessionPath, [
+      JSON.stringify({ role: 'assistant', content: [{ type: 'text', text: 'Blocked on database migration.' }] }),
+      JSON.stringify({ role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input: { file_path: path.join(dir, 'src', 'index.js') } }] }),
+    ].join('\n'), 'utf-8');
+
+    console.log = () => {};
+    await withFakeHome(homeDir, () => generate(dir, { handoff: true }));
+    console.log = global.console.log;
+
+    const handoff = fs.readFileSync(path.join(dir, 'HANDOFF.md'), 'utf-8');
+    assert.ok(handoff.includes('Recent AI sessions'));
+    assert.ok(handoff.includes('Blocked on database migration'));
+  } finally {
+    console.log = global.console.log;
+    teardown();
+    cleanup(homeDir);
+  }
 };

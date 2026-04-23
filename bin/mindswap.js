@@ -16,6 +16,7 @@ const { summary } = require('../src/summary');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
+const { doctor } = require('../src/doctor');
 
 const program = new Command();
 
@@ -87,8 +88,9 @@ program
 program
   .command('log <message>')
   .alias('l')
-  .description('Log a decision. Warns if it conflicts with existing decisions.')
+  .description('Log a memory item. Decisions warn on conflicts; blockers/questions/assumptions/resolutions are stored in structured memory.')
   .option('--tag <tag>', 'Tag (e.g., architecture, database, auth)')
+  .option('--type <type>', 'Memory type: decision, blocker, assumption, question, resolution')
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
@@ -108,6 +110,20 @@ program
   .action(async (opts) => {
     try {
       await status(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── doctor ───
+program
+  .command('doctor')
+  .description('Diagnose setup, context freshness, hooks, and continuity health.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await doctor(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
