@@ -122,6 +122,7 @@ async function switchTool(projectRoot, toolName, opts = {}) {
     console.log(chalk.white('    .github/copilot-instructions.md'));
   } else if (toolName === 'codex') {
     console.log(chalk.dim('  Codex/agents will auto-read:'));
+    console.log(chalk.white('    CODEX.md'));
     console.log(chalk.white('    AGENTS.md'));
     console.log(chalk.white('    HANDOFF.md'));
   }

@@ -15,6 +15,7 @@ One command captures your entire project state. Switch between Claude Code, Curs
 npm install mindswap --save-dev
 npx mindswap init        # once — auto-detects everything
 npx mindswap             # save state when switching tools
+npx mindswap doctor      # diagnose setup, context freshness, and gaps
 npx mindswap mcp-install # enable MCP for Claude Code / Cursor
 ```
 
@@ -63,13 +64,14 @@ It auto-detects your task from the branch name, captures git state, logs depende
 
 ```bash
 npx mindswap init     # once per project
+npx mindswap doctor   # sanity-check setup and context health
 npx mindswap          # when switching tools
 npx mindswap done     # when feature is complete
 ```
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 10 commands
+## 11 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -79,6 +81,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap done [msg]` | `d` | Mark task complete, archive to history, reset to idle |
 | `mindswap log <msg>` | `l` | Log a decision. Warns if it conflicts with existing decisions |
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
+| `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md on file changes |
@@ -96,6 +99,12 @@ Each git branch has its own state. Switch to `feat/payments` — it loads that b
 
 ### Decision conflict detection
 Log "NOT using Redis" then later "using Redis"? mindswap warns you. Also catches reversed choices and package.json contradictions.
+
+### Continuity diagnostics
+```bash
+npx mindswap doctor
+```
+Checks whether mindswap is initialized correctly, whether generated handoff files are stale, whether git hooks are installed, whether AI-tool-specific context files are missing, and whether conflicts or weak continuity signals need attention.
 
 ### Safe merge
 Already have a CLAUDE.md? mindswap appends its section inside `<!-- mindswap:start/end -->` markers. Your content is never touched.
