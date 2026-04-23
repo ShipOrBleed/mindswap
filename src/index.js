@@ -20,6 +20,7 @@ const { scanForSecrets, redactSecrets } = require('./secrets');
 const { detectMonorepo } = require('./monorepo');
 const { parseNativeSessions } = require('./session-parser');
 const { pr } = require('./pr');
+const { doctor } = require('./doctor');
 
 module.exports = {
   init,
@@ -56,4 +57,5 @@ module.exports = {
   detectMonorepo,
   parseNativeSessions,
   pr,
+  doctor,
 };
