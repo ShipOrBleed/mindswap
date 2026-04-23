@@ -13,6 +13,7 @@ const { log } = require('../src/decisions');
 const { done, reset } = require('../src/lifecycle');
 const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
+const { resume } = require('../src/resume');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
@@ -250,6 +251,21 @@ program
   .action(async (opts) => {
     try {
       await summary(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── resume ───
+program
+  .command('resume')
+  .description('Action-oriented briefing — state, blockers, and the next best move.')
+  .option('--compact', 'Short, recommendation-first briefing')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await resume(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

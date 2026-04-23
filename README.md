@@ -64,6 +64,7 @@ It auto-detects your task from the branch name, captures git state, logs depende
 
 ```bash
 npx mindswap init     # once per project
+npx mindswap resume   # get an action-oriented start-of-session briefing
 npx mindswap doctor   # sanity-check setup and context health
 npx mindswap          # when switching tools
 npx mindswap done     # when feature is complete
@@ -71,7 +72,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 11 commands
+## 12 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -82,6 +83,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap log <msg>` | `l` | Log a memory item. Decisions warn on conflicts; use `--type` for blockers, assumptions, questions, and resolutions |
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
 | `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
+| `mindswap resume` | — | Action-oriented briefing — state, blockers, and the next best move. `--compact` / `--json` |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |

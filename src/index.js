@@ -7,6 +7,7 @@ const { log } = require('./decisions');
 const { done, reset } = require('./lifecycle');
 const { switchTool } = require('./switch');
 const { summary } = require('./summary');
+const { resume } = require('./resume');
 const { save } = require('./save');
 const { readState, writeState, updateState, getHistory } = require('./state');
 const { detectProject } = require('./detect');
@@ -35,6 +36,7 @@ module.exports = {
   save,
   switchTool,
   summary,
+  resume,
   readState,
   writeState,
   updateState,
