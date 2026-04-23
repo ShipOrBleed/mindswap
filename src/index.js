@@ -21,6 +21,7 @@ const { importSessions } = require('./session-import');
 const { scanForSecrets, redactSecrets } = require('./secrets');
 const { detectMonorepo } = require('./monorepo');
 const { parseNativeSessions } = require('./session-parser');
+const { analyzeGuardrails } = require('./guardrails');
 const { pr } = require('./pr');
 const { readMemory, appendMemoryItem, getMemoryItems } = require('./memory');
 const { doctor } = require('./doctor');
@@ -61,6 +62,7 @@ module.exports = {
   redactSecrets,
   detectMonorepo,
   parseNativeSessions,
+  analyzeGuardrails,
   pr,
   readMemory,
   appendMemoryItem,

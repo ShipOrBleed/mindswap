@@ -2,11 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 const { readState, updateState, addToHistory, getDataDir } = require('./state');
-const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getRecentCommits, getLastCommitInfo } = require('./git');
+const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getDiffContent, getRecentCommits, getLastCommitInfo } = require('./git');
 const { detectAITool } = require('./detect-ai');
 const { detectLastStatus, runChecks } = require('./build-test');
 const { generate } = require('./generate');
 const { calculateQualityScore } = require('./narrative');
+const { analyzeGuardrails } = require('./guardrails');
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 const { annotateHistoryEntry } = require('./team');
 
@@ -24,6 +25,8 @@ async function save(projectRoot, opts = {}) {
   const now = new Date().toISOString();
   const state = readState(projectRoot);
   const aiTool = detectAITool(projectRoot);
+  let changedFiles = [];
+  let diffContent = '';
 
   const quiet = opts.quiet || false;
   if (!quiet) console.log(chalk.bold('\n⚡ Saving project state...\n'));
@@ -54,14 +57,16 @@ async function save(projectRoot, opts = {}) {
   let gitInfo = {};
   if (isGitRepo(projectRoot)) {
     const branch = getCurrentBranch(projectRoot);
-    const changedFiles = getAllChangedFiles(projectRoot);
+    changedFiles = getAllChangedFiles(projectRoot);
     const commits = getRecentCommits(projectRoot, 5);
     const lastCommit = getLastCommitInfo(projectRoot);
+    diffContent = getDiffContent(projectRoot, 150);
 
     gitInfo = {
       git_branch: branch,
       files_changed: changedFiles.map(f => `${f.status}: ${f.file}`),
       git_diff_summary: getDiffSummary(projectRoot),
+      git_diff_content: diffContent,
       recent_commits: commits,
       last_commit: lastCommit,
     };
@@ -91,6 +96,17 @@ async function save(projectRoot, opts = {}) {
     if (!quiet) console.log(chalk.dim('  Tests:     ') + icon + ' ' + chalk.white(detail));
   }
 
+  const guardrails = analyzeGuardrails(projectRoot, {
+    changedFiles,
+    diffContent,
+  });
+  if (guardrails.warnings.length > 0 && !quiet) {
+    console.log(chalk.dim('  Guardrails: ') + chalk.white(`${guardrails.warnings.length} drift signal${guardrails.warnings.length === 1 ? '' : 's'} detected`));
+    for (const warning of guardrails.warnings.slice(0, 3)) {
+      console.log(chalk.yellow(`    • ${warning.reason}`));
+    }
+  }
+
   // ─── 5. Parse native AI sessions for richer context ───
   try {
     const sessions = parseNativeSessions(projectRoot);
@@ -116,6 +132,7 @@ async function save(projectRoot, opts = {}) {
       message: message,
       ai_tool: aiTool,
       ...gitInfo,
+      guardrails,
     },
     modified_files: gitInfo.files_changed || [],
   };

@@ -109,6 +109,9 @@ mindswap reads recent Claude Code and Codex session files, normalizes them into 
 ### Decision conflict detection
 Log "NOT using Redis" then later "using Redis"? mindswap warns you. Also catches reversed choices and package.json contradictions.
 
+### Architectural guardrails
+When your diff touches code that contradicts a recorded decision, mindswap warns you in `save`, `doctor`, generated handoff files, and MCP context. It is a proactive drift check, not just a static conflict log.
+
 ### Structured memory
 Not everything is a decision. mindswap now keeps structured memory for blockers, assumptions, open questions, and resolutions in `.mindswap/memory.json`, while keeping `decisions.log` for compatibility and conflict checks.
 

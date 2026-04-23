@@ -13,6 +13,7 @@ const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('.
 const { importSessions } = require('./session-import');
 const { appendMemoryItem, getOpenMemoryItems, getRecentMemoryItems } = require('./memory');
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
+const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 
 /**
  * Start the mindswap MCP server.
@@ -156,6 +157,11 @@ function getContext(projectRoot, focus, compact) {
     const memoryLines = formatMemorySection(projectRoot);
     if (memoryLines.length > 0) {
       sections.push(`## Structured Memory\n${memoryLines.join('\n')}`);
+    }
+
+    const guardrailSection = buildGuardrailSection(liveData.guardrails);
+    if (guardrailSection) {
+      sections.push(guardrailSection);
     }
 
     // Conflicts
@@ -488,6 +494,10 @@ function gatherLiveData(projectRoot) {
   data.structuredMemory = getRecentMemoryItems(projectRoot, 20);
   data.history = getHistory(projectRoot, 5);
   data.nativeSessions = parseNativeSessions(projectRoot);
+  data.guardrails = analyzeGuardrails(projectRoot, {
+    changedFiles: data.changedFiles,
+    diffContent: '',
+  });
   return data;
 }
 

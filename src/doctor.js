@@ -8,6 +8,7 @@ const { detectAITool } = require('./detect-ai');
 const { detectLastStatus } = require('./build-test');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { calculateQualityScore } = require('./narrative');
+const { analyzeGuardrails } = require('./guardrails');
 
 async function doctor(projectRoot, opts = {}) {
   const report = analyzeProjectHealth(projectRoot);
@@ -153,6 +154,13 @@ function analyzeProjectHealth(projectRoot) {
     addCheck(checks, 'ok', 'no dependency-vs-decision conflicts detected');
   } else {
     addCheck(checks, 'issue', `${depConflicts.length} dependency conflict${depConflicts.length === 1 ? '' : 's'} detected`, depConflicts[0].reason);
+  }
+
+  const guardrails = analyzeGuardrails(projectRoot);
+  if (guardrails.warnings.length === 0) {
+    addCheck(checks, 'ok', 'no architectural drift signals detected');
+  } else {
+    addCheck(checks, 'warning', `${guardrails.warnings.length} architectural drift signal${guardrails.warnings.length === 1 ? '' : 's'} detected`, guardrails.warnings[0].reason);
   }
 
   const aiContextStatus = inspectAIContextFiles(projectRoot);
