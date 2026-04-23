@@ -16,6 +16,7 @@ const { summary } = require('../src/summary');
 const { resume } = require('../src/resume');
 const { ask } = require('../src/ask');
 const { contracts } = require('../src/contracts');
+const { sync } = require('../src/sync');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
@@ -281,6 +282,24 @@ program
   .action(async (opts) => {
     try {
       await contracts(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── sync ───
+program
+  .command('sync')
+  .description('Push or pull shared hub state. Without flags, prints sync status.')
+  .option('--push', 'Push local state to the shared hub')
+  .option('--pull', 'Pull shared state from the hub')
+  .option('--force', 'Override sync conflicts')
+  .option('--hub <path>', 'Path to the sync hub JSON file')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await sync(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

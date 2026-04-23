@@ -10,6 +10,7 @@ const { summary } = require('./summary');
 const { resume } = require('./resume');
 const { ask } = require('./ask');
 const { contracts } = require('./contracts');
+const { sync } = require('./sync');
 const { save } = require('./save');
 const { readState, writeState, updateState, getHistory } = require('./state');
 const { detectProject } = require('./detect');
@@ -42,6 +43,7 @@ module.exports = {
   resume,
   ask,
   contracts,
+  sync,
   readState,
   writeState,
   updateState,

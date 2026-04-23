@@ -73,7 +73,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 14 commands
+## 15 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -87,6 +87,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap resume` | — | Action-oriented briefing — state, blockers, and the next best move. `--compact` / `--json` |
 | `mindswap ask <question>` | — | Semantic question answering from project memory and history. `--json` for machine use |
 | `mindswap contracts` | — | Emit machine-readable interface contracts for the current workstream |
+| `mindswap sync` | — | Push, pull, or inspect shared hub state. `--push`, `--pull`, `--force`, `--hub` |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |
@@ -115,6 +116,9 @@ When your diff touches code that contradicts a recorded decision, mindswap warns
 
 ### Interface contracts
 `mindswap contracts` emits a machine-readable JSON contract for the active workstream, including boundaries, blockers, assumptions, and recent history so another agent can resume without re-reading the whole repo.
+
+### Shared sync
+`mindswap sync` can push or pull a local JSON hub file so teams can share continuity state across machines. Conflicts are explicit, and `doctor` surfaces the sync health.
 
 ### Structured memory
 Not everything is a decision. mindswap now keeps structured memory for blockers, assumptions, open questions, and resolutions in `.mindswap/memory.json`, while keeping `decisions.log` for compatibility and conflict checks.

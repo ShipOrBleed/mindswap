@@ -9,6 +9,7 @@ const { detectLastStatus } = require('./build-test');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { calculateQualityScore } = require('./narrative');
 const { analyzeGuardrails } = require('./guardrails');
+const { getSyncHubPath, readHubSnapshot, buildSyncReport, buildLocalSnapshot } = require('./sync');
 
 async function doctor(projectRoot, opts = {}) {
   const report = analyzeProjectHealth(projectRoot);
@@ -166,6 +167,23 @@ function analyzeProjectHealth(projectRoot) {
   const aiContextStatus = inspectAIContextFiles(projectRoot);
   for (const item of aiContextStatus) {
     addCheck(checks, item.level, item.message, item.fix);
+  }
+
+  const hubPath = getSyncHubPath(projectRoot);
+  if (fs.existsSync(hubPath)) {
+    const report = buildSyncReport({
+      local: buildLocalSnapshot(projectRoot),
+      hub: readHubSnapshot(hubPath),
+      hubPath,
+      mode: 'status',
+    });
+    if (report.conflict) {
+      addCheck(checks, 'warning', 'shared sync hub is diverged from local state', report.message);
+    } else {
+      addCheck(checks, 'ok', `shared sync hub status: ${report.status}`);
+    }
+  } else if (process.env.MINDSWAP_SYNC_HUB) {
+    addCheck(checks, 'warning', 'sync hub path is configured but the hub file is missing', `Create or point MINDSWAP_SYNC_HUB at a writable JSON file (${hubPath}).`);
   }
 
   if (state) {
