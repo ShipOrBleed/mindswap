@@ -88,7 +88,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 
 ### Auto-everything
 - **Task detection** — from branch name (`feat/user-auth` → "user auth") + recent commits
-- **Dependency tracking** — added Stripe? Auto-logged. Removed Redis? Logged too.
+- **Dependency tracking** — added Stripe? Auto-logged. Removed Redis? Logged too. Works across JS/TS, Python, Go, Rust, and Ruby manifests.
 - **Git hooks** — auto-saves state on every commit
 
 ### Branch-aware state

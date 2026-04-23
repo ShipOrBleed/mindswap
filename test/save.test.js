@@ -51,6 +51,50 @@ exports.test_autoDetectDepChanges_no_changes = () => {
   } finally { teardown(); }
 };
 
+exports.test_autoDetectDepChanges_python_requirements = () => {
+  setup();
+  try {
+    fs.writeFileSync(path.join(dir, 'requirements.txt'), 'fastapi==0.111.0\nredis==5.0.1\n');
+    const state = { project: { tech_stack: ['python'] } };
+    const changes = saveModule.autoDetectDepChanges(dir, state);
+    assert.ok(changes.some(change => change.includes('FastAPI')), `expected FastAPI change, got ${changes.join(', ')}`);
+    assert.ok(changes.some(change => change.includes('Redis')), `expected Redis change, got ${changes.join(', ')}`);
+  } finally { teardown(); }
+};
+
+exports.test_autoDetectDepChanges_go_mod = () => {
+  setup();
+  try {
+    fs.writeFileSync(path.join(dir, 'go.mod'), `module example.com/test\n\ngo 1.22\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.10.0\n\tgithub.com/redis/go-redis/v9 v9.5.1\n)\n`);
+    const state = { project: { tech_stack: ['go'] } };
+    const changes = saveModule.autoDetectDepChanges(dir, state);
+    assert.ok(changes.some(change => change.includes('Gin')), `expected Gin change, got ${changes.join(', ')}`);
+    assert.ok(changes.some(change => change.includes('Redis')), `expected Redis change, got ${changes.join(', ')}`);
+  } finally { teardown(); }
+};
+
+exports.test_autoDetectDepChanges_cargo = () => {
+  setup();
+  try {
+    fs.writeFileSync(path.join(dir, 'Cargo.toml'), `[package]\nname = "test"\nversion = "0.1.0"\n\n[dependencies]\naxum = "0.7"\nredis = "0.25"\n`);
+    const state = { project: { tech_stack: ['rust'] } };
+    const changes = saveModule.autoDetectDepChanges(dir, state);
+    assert.ok(changes.some(change => change.includes('Axum')), `expected Axum change, got ${changes.join(', ')}`);
+    assert.ok(changes.some(change => change.includes('Redis')), `expected Redis change, got ${changes.join(', ')}`);
+  } finally { teardown(); }
+};
+
+exports.test_autoDetectDepChanges_gemfile = () => {
+  setup();
+  try {
+    fs.writeFileSync(path.join(dir, 'Gemfile'), `source "https://rubygems.org"\ngem "rails", "~> 7.1"\ngem "sidekiq", "~> 7.2"\n`);
+    const state = { project: { tech_stack: ['ruby'] } };
+    const changes = saveModule.autoDetectDepChanges(dir, state);
+    assert.ok(changes.some(change => change.includes('Rails')), `expected Rails change, got ${changes.join(', ')}`);
+    assert.ok(changes.some(change => change.includes('Sidekiq')), `expected Sidekiq change, got ${changes.join(', ')}`);
+  } finally { teardown(); }
+};
+
 exports.test_autoDetectWorkSummary_with_commits = () => {
   setup();
   try {
