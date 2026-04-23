@@ -14,6 +14,7 @@ One command captures your entire project state. Switch between Claude Code, Curs
 ```bash
 npm install mindswap --save-dev
 npx mindswap init        # once — auto-detects everything
+npx mindswap ask "Why did we choose JWT?"  # answer from project memory with cited matches
 npx mindswap             # save state when switching tools
 npx mindswap doctor      # diagnose setup, context freshness, and gaps
 npx mindswap mcp-install # enable MCP for Claude Code / Cursor
@@ -72,7 +73,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 12 commands
+## 13 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -84,6 +85,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
 | `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
 | `mindswap resume` | — | Action-oriented briefing — state, blockers, and the next best move. `--compact` / `--json` |
+| `mindswap ask <question>` | — | Semantic question answering from project memory and history. `--json` for machine use |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |
@@ -124,6 +126,12 @@ Generated context files surface unresolved blockers and questions separately so 
 npx mindswap doctor
 ```
 Checks whether mindswap is initialized correctly, whether generated handoff files are stale, whether git hooks are installed, whether AI-tool-specific context files are missing, and whether conflicts or weak continuity signals need attention.
+
+### Semantic ask
+```bash
+npx mindswap ask "Why did we choose JWT?"
+```
+Answers natural-language questions against decisions, history, memory, and recent session context, then cites the strongest matching project records.
 
 ### Safe merge
 Already have a CLAUDE.md? mindswap appends its section inside `<!-- mindswap:start/end -->` markers. Your content is never touched.

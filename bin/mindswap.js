@@ -14,6 +14,7 @@ const { done, reset } = require('../src/lifecycle');
 const { switchTool } = require('../src/switch');
 const { summary } = require('../src/summary');
 const { resume } = require('../src/resume');
+const { ask } = require('../src/ask');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
@@ -251,6 +252,20 @@ program
   .action(async (opts) => {
     try {
       await summary(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── ask ───
+program
+  .command('ask <question...>')
+  .description('Answer a question from project memory using semantic search and cited sources.')
+  .option('--json', 'Output as JSON')
+  .action(async (question, opts) => {
+    try {
+      await ask(process.cwd(), question, opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
