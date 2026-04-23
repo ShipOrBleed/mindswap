@@ -7,6 +7,7 @@ const { buildNarrative, buildCompactNarrative, summarizeFiles } = require('./nar
 const { scanAndRedact, printSecretWarnings } = require('./secrets');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
 const { getOpenMemoryItems, getMemoryItems } = require('./memory');
+const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 
 const SECTION_START = '<!-- mindswap:start -->';
 const SECTION_END = '<!-- mindswap:end -->';
@@ -178,6 +179,7 @@ function gatherLiveData(projectRoot) {
   }
   data.structuredMemory = getStructuredMemory(projectRoot);
   data.history = getHistory(projectRoot, 5);
+  data.nativeSessions = parseNativeSessions(projectRoot);
   return data;
 }
 
@@ -265,6 +267,13 @@ ${live.branch ? `- **Git branch**: ${live.branch}` : ''}
     md += `\n## Session history (recent)\n`;
     for (const h of live.history) {
       md += `- **${h.timestamp}**: ${h.message}${h.ai_tool ? ` (${h.ai_tool})` : ''}\n`;
+    }
+  }
+
+  if (live.nativeSessions?.length > 0) {
+    const sessionSummary = getSessionSummary(live.nativeSessions);
+    if (sessionSummary.trim()) {
+      md += `${sessionSummary}\n`;
     }
   }
 

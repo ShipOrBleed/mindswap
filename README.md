@@ -15,6 +15,7 @@ One command captures your entire project state. Switch between Claude Code, Curs
 npm install mindswap --save-dev
 npx mindswap init        # once — auto-detects everything
 npx mindswap             # save state when switching tools
+npx mindswap doctor      # diagnose setup, context freshness, and gaps
 npx mindswap mcp-install # enable MCP for Claude Code / Cursor
 ```
 
@@ -63,13 +64,14 @@ It auto-detects your task from the branch name, captures git state, logs depende
 
 ```bash
 npx mindswap init     # once per project
+npx mindswap doctor   # sanity-check setup and context health
 npx mindswap          # when switching tools
 npx mindswap done     # when feature is complete
 ```
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 10 commands
+## 11 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -79,6 +81,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap done [msg]` | `d` | Mark task complete, archive to history, reset to idle |
 | `mindswap log <msg>` | `l` | Log a memory item. Decisions warn on conflicts; use `--type` for blockers, assumptions, questions, and resolutions |
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
+| `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md on file changes |
@@ -88,11 +91,14 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 
 ### Auto-everything
 - **Task detection** — from branch name (`feat/user-auth` → "user auth") + recent commits
-- **Dependency tracking** — added Stripe? Auto-logged. Removed Redis? Logged too.
+- **Dependency tracking** — added Stripe? Auto-logged. Removed Redis? Logged too. Works across JS/TS, Python, Go, Rust, and Ruby manifests.
 - **Git hooks** — auto-saves state on every commit
 
 ### Branch-aware state
 Each git branch has its own state. Switch to `feat/payments` — it loads that branch's task and decisions. Switch back to `main` — your main state is restored.
+
+### Native session normalization
+mindswap reads recent Claude Code and Codex session files, normalizes them into a structured model, and surfaces the last session's findings, blockers, and edited files in `HANDOFF.md` and MCP context.
 
 ### Decision conflict detection
 Log "NOT using Redis" then later "using Redis"? mindswap warns you. Also catches reversed choices and package.json contradictions.
@@ -108,6 +114,12 @@ npx mindswap log "Moved to JWT after auth review" --type resolution
 ```
 
 Generated context files surface unresolved blockers and questions separately so the next AI does not have to infer them from free-form notes.
+
+### Continuity diagnostics
+```bash
+npx mindswap doctor
+```
+Checks whether mindswap is initialized correctly, whether generated handoff files are stale, whether git hooks are installed, whether AI-tool-specific context files are missing, and whether conflicts or weak continuity signals need attention.
 
 ### Safe merge
 Already have a CLAUDE.md? mindswap appends its section inside `<!-- mindswap:start/end -->` markers. Your content is never touched.
@@ -149,7 +161,7 @@ npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
 
 | MCP Tool | When AI calls it | What it returns |
 |----------|-----------------|-----------------|
-| `mindswap_get_context` | Session start — "What do I need to know?" | Synthesized briefing: task, decisions, conflicts, tests, recent work |
+| `mindswap_get_context` | Session start — "What do I need to know?" | Synthesized briefing: task, decisions, conflicts, tests, recent work, native session findings |
 | `mindswap_save_context` | Session end — "Here's what I did" | Persists summary, decisions, next steps, blockers |
 | `mindswap_search` | Mid-session — "What did we decide about auth?" | Searches decisions + history + state |
 

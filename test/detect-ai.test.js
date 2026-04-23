@@ -31,6 +31,14 @@ exports.test_detects_cursor = () => {
   } finally { teardown(); }
 };
 
+exports.test_detects_codex_from_generated_file = () => {
+  setup();
+  try {
+    fs.writeFileSync(path.join(dir, 'CODEX.md'), '# Codex');
+    assert.ok(detectAITool(dir).includes('Codex'));
+  } finally { teardown(); }
+};
+
 exports.test_detects_multiple_tools = () => {
   setup();
   try {
@@ -56,9 +64,11 @@ exports.test_getAllAIContextFiles = () => {
   setup();
   try {
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# test');
+    fs.writeFileSync(path.join(dir, 'CODEX.md'), '# test');
     fs.writeFileSync(path.join(dir, 'HANDOFF.md'), '# test');
     const files = getAllAIContextFiles(dir);
     assert.strictEqual(files['CLAUDE.md'], true);
+    assert.strictEqual(files['CODEX.md'], true);
     assert.strictEqual(files['HANDOFF.md'], true);
     assert.strictEqual(files['AGENTS.md'], false);
   } finally { teardown(); }

@@ -21,6 +21,7 @@ const { detectMonorepo } = require('./monorepo');
 const { parseNativeSessions } = require('./session-parser');
 const { pr } = require('./pr');
 const { readMemory, appendMemoryItem, getMemoryItems } = require('./memory');
+const { doctor } = require('./doctor');
 
 module.exports = {
   init,
@@ -60,4 +61,5 @@ module.exports = {
   readMemory,
   appendMemoryItem,
   getMemoryItems,
+  doctor,
 };
