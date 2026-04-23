@@ -47,14 +47,15 @@ function appendMemoryItem(projectRoot, item) {
   const memory = readMemory(projectRoot);
   const normalizedType = normalizeType(item.type);
   const now = item.created_at || new Date().toISOString();
+  const status = item.status || (normalizedType === 'resolution' ? 'resolved' : 'open');
   const entry = {
     id: item.id || generateId(),
     type: normalizedType,
     tag: item.tag || 'general',
     message: item.message,
-    status: item.status || (normalizedType === 'resolution' ? 'resolved' : 'open'),
+    status,
     created_at: now,
-    resolved_at: item.resolved_at || null,
+    resolved_at: item.resolved_at || (status === 'resolved' ? now : null),
     source: item.source || 'cli',
     metadata: item.metadata || {},
   };

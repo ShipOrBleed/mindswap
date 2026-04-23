@@ -99,3 +99,18 @@ exports.test_log_writes_structured_memory = async () => {
     assert.strictEqual(assumption.tag, 'auth');
   } finally { teardown(); }
 };
+
+exports.test_log_resolution_sets_resolved_timestamp = async () => {
+  setup();
+  try {
+    console.log = () => {};
+    await log(dir, 'Settled on JWT for v1', { type: 'resolution', tag: 'auth' });
+    console.log = global.console.log;
+
+    const memory = readMemory(dir);
+    const resolution = memory.items.find(item => item.type === 'resolution');
+    assert.ok(resolution, 'should persist resolution');
+    assert.strictEqual(resolution.status, 'resolved');
+    assert.ok(resolution.resolved_at, 'resolution should include resolved_at');
+  } finally { teardown(); }
+};

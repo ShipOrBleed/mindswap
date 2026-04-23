@@ -5,7 +5,7 @@ const { ensureDataDir, writeState, getDefaultState } = require('./state');
 const { detectProject } = require('./detect');
 const { isGitRepo, getCurrentBranch } = require('./git');
 const { detectMonorepo } = require('./monorepo');
-const { ensureMemory, writeMemory, getDefaultMemory, appendMemoryItem } = require('./memory');
+const { ensureMemory, writeMemory, getDefaultMemory, appendMemoryItem, readMemory } = require('./memory');
 
 async function init(projectRoot, opts = {}) {
   console.log(chalk.bold('\n⚡ Initializing mindswap...\n'));
@@ -76,7 +76,8 @@ async function init(projectRoot, opts = {}) {
   console.log(chalk.dim('  Created:    ') + chalk.green('.mindswap/memory.json'));
 
   // 6. Import existing AI context files
-  const imported = importExistingContext(projectRoot, dataDir);
+  const importTracker = createImportTracker(projectRoot, dataDir);
+  const imported = importExistingContext(projectRoot, dataDir, importTracker);
   if (imported > 0) {
     console.log(chalk.dim('  Imported:   ') + chalk.green(`${imported} decisions from existing AI context files`));
   }
@@ -90,26 +91,24 @@ async function init(projectRoot, opts = {}) {
     const timestamp = new Date().toISOString();
     for (const session of sessions) {
       for (const d of session.decisions) {
-        fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${session.tool}] ${d}\n`);
-        appendMemoryItem(projectRoot, {
+        const added = appendImportedDecision(projectRoot, decisionsPath, importTracker, {
           type: 'decision',
           tag: `imported:${session.tool}`,
           message: d,
           created_at: timestamp,
           source: 'import',
         });
-        sessionImported++;
+        if (added) sessionImported++;
       }
       for (const c of session.context) {
-        fs.appendFileSync(decisionsPath, `[${timestamp}] [context:${session.tool}] ${c}\n`);
-        appendMemoryItem(projectRoot, {
+        const added = appendImportedMemory(projectRoot, importTracker, {
           type: 'assumption',
           tag: `context:${session.tool}`,
           message: c,
           created_at: timestamp,
           source: 'import',
         });
-        sessionImported++;
+        if (added) sessionImported++;
       }
     }
     if (sessionImported > 0) {
@@ -132,7 +131,7 @@ async function init(projectRoot, opts = {}) {
   } catch {}
 
   // 7. Install git hooks (optional)
-  if (!opts.noHooks && isGitRepo(projectRoot)) {
+  if (opts.hooks !== false && isGitRepo(projectRoot)) {
     installGitHooks(projectRoot);
     console.log(chalk.dim('  Installed:  ') + chalk.green('git post-commit hook'));
   }
@@ -158,7 +157,7 @@ async function init(projectRoot, opts = {}) {
  * Import context from existing AI tool files (CLAUDE.md, AGENTS.md, .cursorrules, etc.)
  * Extracts decisions and context into the decisions log.
  */
-function importExistingContext(projectRoot, dataDir) {
+function importExistingContext(projectRoot, dataDir, importTracker) {
   const decisionsPath = path.join(dataDir, 'decisions.log');
   let imported = 0;
   const timestamp = new Date().toISOString();
@@ -183,15 +182,14 @@ function importExistingContext(projectRoot, dataDir) {
           const content = fs.readFileSync(path.join(fullPath, f), 'utf-8');
           const decisions = extractDecisionsFromContent(content);
           for (const d of decisions) {
-            fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${file.source}] ${d}\n`);
-            appendMemoryItem(projectRoot, {
+            const added = appendImportedDecision(projectRoot, decisionsPath, importTracker, {
               type: 'decision',
               tag: `imported:${file.source}`,
               message: d,
               created_at: timestamp,
               source: 'import',
             });
-            imported++;
+            if (added) imported++;
           }
         }
       } catch {}
@@ -200,21 +198,67 @@ function importExistingContext(projectRoot, dataDir) {
         const content = fs.readFileSync(fullPath, 'utf-8');
         const decisions = extractDecisionsFromContent(content);
         for (const d of decisions) {
-          fs.appendFileSync(decisionsPath, `[${timestamp}] [imported:${file.source}] ${d}\n`);
-          appendMemoryItem(projectRoot, {
+          const added = appendImportedDecision(projectRoot, decisionsPath, importTracker, {
             type: 'decision',
             tag: `imported:${file.source}`,
             message: d,
             created_at: timestamp,
             source: 'import',
           });
-          imported++;
+          if (added) imported++;
         }
       } catch {}
     }
   }
 
   return imported;
+}
+
+function createImportTracker(projectRoot, dataDir) {
+  const decisionKeys = new Set();
+  const memoryKeys = new Set();
+  const decisionsPath = path.join(dataDir, 'decisions.log');
+
+  if (fs.existsSync(decisionsPath)) {
+    const lines = fs.readFileSync(decisionsPath, 'utf-8').split('\n').filter(line => line.startsWith('['));
+    for (const line of lines) {
+      const match = line.match(/^\[[^\]]+\]\s+\[([^\]]+)\]\s+(.+)$/);
+      if (!match) continue;
+      decisionKeys.add(`${match[1]}::${match[2]}`);
+    }
+  }
+
+  const memory = readMemory(projectRoot);
+  for (const item of memory.items) {
+    memoryKeys.add(`${item.type}::${item.tag}::${item.message}`);
+  }
+
+  return { decisionKeys, memoryKeys };
+}
+
+function appendImportedDecision(projectRoot, decisionsPath, tracker, item) {
+  const decisionKey = `${item.tag}::${item.message}`;
+  const memoryKey = `${item.type}::${item.tag}::${item.message}`;
+  if (tracker.decisionKeys.has(decisionKey) || tracker.memoryKeys.has(memoryKey)) {
+    return false;
+  }
+
+  fs.appendFileSync(decisionsPath, `[${item.created_at}] [${item.tag}] ${item.message}\n`);
+  appendMemoryItem(projectRoot, item);
+  tracker.decisionKeys.add(decisionKey);
+  tracker.memoryKeys.add(memoryKey);
+  return true;
+}
+
+function appendImportedMemory(projectRoot, tracker, item) {
+  const memoryKey = `${item.type}::${item.tag}::${item.message}`;
+  if (tracker.memoryKeys.has(memoryKey)) {
+    return false;
+  }
+
+  appendMemoryItem(projectRoot, item);
+  tracker.memoryKeys.add(memoryKey);
+  return true;
 }
 
 /**
