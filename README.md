@@ -7,6 +7,8 @@
 
 One command captures your entire project state. Switch between Claude Code, Cursor, Copilot, Codex — the next AI picks up instantly. Zero re-explaining.
 
+Live product UI: [mindswap-ui](https://github.com/ShipOrBleed/mindswap-ui) and the public landing page at <https://mindswap.vercel.app>.
+
 <p align="center">
   <img src="assets/demo.svg" alt="mindswap demo" width="680">
 </p>
