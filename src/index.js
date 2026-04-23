@@ -9,6 +9,7 @@ const { switchTool } = require('./switch');
 const { summary } = require('./summary');
 const { resume } = require('./resume');
 const { ask } = require('./ask');
+const { contracts } = require('./contracts');
 const { save } = require('./save');
 const { readState, writeState, updateState, getHistory } = require('./state');
 const { detectProject } = require('./detect');
@@ -40,6 +41,7 @@ module.exports = {
   summary,
   resume,
   ask,
+  contracts,
   readState,
   writeState,
   updateState,
