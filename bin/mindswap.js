@@ -17,6 +17,7 @@ const { resume } = require('../src/resume');
 const { ask } = require('../src/ask');
 const { contracts } = require('../src/contracts');
 const { sync } = require('../src/sync');
+const { manageMemory } = require('../src/mcp-server');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { startMCPServer } = require('../src/mcp-server');
@@ -98,6 +99,54 @@ program
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── memory ───
+program
+  .command('memory <action> [id] [message...]')
+  .description('Manage structured memory items. Actions: list, get, add, update, resolve, archive, delete')
+  .option('-t, --type <type>', 'Memory type')
+  .option('--tag <tag>', 'Tag filter or value')
+  .option('--status <status>', 'Status filter or value')
+  .option('--author <author>', 'Author filter or value')
+  .option('--source <source>', 'Source filter or value')
+  .option('--limit <limit>', 'Limit results', '20')
+  .option('--after <iso>', 'Created after timestamp')
+  .option('--before <iso>', 'Created before timestamp')
+  .option('--hard', 'Permanently delete instead of archiving')
+  .option('--json', 'Output as JSON')
+  .action(async (action, id, messageParts, opts) => {
+    try {
+      const message = action === 'add'
+        ? [id, ...(Array.isArray(messageParts) ? messageParts : [messageParts])].filter(Boolean).join(' ').trim()
+        : (Array.isArray(messageParts) ? messageParts.join(' ').trim() : String(messageParts || '').trim());
+      const result = manageMemory(process.cwd(), {
+        action,
+        id: action === 'add' ? undefined : id,
+        message,
+        type: opts.type,
+        tag: opts.tag,
+        status: opts.status,
+        author: opts.author,
+        source: opts.source,
+        limit: opts.limit,
+        created_after: opts.after,
+        created_before: opts.before,
+        hard: opts.hard,
+        json: opts.json,
+      });
+      if (result?.content?.length) {
+        for (const item of result.content) {
+          if (item?.type === 'text' && item.text) {
+            process.stdout.write(`${item.text}\n`);
+          }
+        }
+      }
+      if (result?.exitCode) process.exitCode = result.exitCode;
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
