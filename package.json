@@ -1,6 +1,6 @@
 {
   "name": "mindswap",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "mcpName": "io.github.shiporbleed/mindswap",
   "description": "Your AI's black box recorder. Auto-track project state so any AI tool picks up where the last one stopped.",
   "main": "src/index.js",
