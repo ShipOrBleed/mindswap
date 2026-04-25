@@ -75,6 +75,17 @@ exports.test_createProjectSnapshot_collects_repo_context_once = () => {
 
     const snapshotAfterChange = createProjectSnapshot(dir, { historyLimit: 5, recentCommitLimit: 5 });
     assert.notStrictEqual(snapshotAfterChange, snapshot);
+
+    const lightSnapshot = createProjectSnapshot(dir, {
+      historyLimit: 5,
+      recentCommitLimit: 5,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    });
+    assert.deepStrictEqual(lightSnapshot.nativeSessions, []);
+    assert.deepStrictEqual(lightSnapshot.importedSessions, []);
+    assert.deepStrictEqual(lightSnapshot.guardrails, { warnings: [], surface: [], decisionLines: [] });
   } finally {
     teardown();
   }

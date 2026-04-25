@@ -35,12 +35,16 @@ function createProjectSnapshot(projectRoot, opts = {}) {
     decisions,
   };
 
-  defineLazyProperty(snapshot, 'nativeSessions', () => parseNativeSessions(projectRoot) || []);
-  defineLazyProperty(snapshot, 'importedSessions', () => importSessions(projectRoot) || []);
-  defineLazyProperty(snapshot, 'guardrails', () => analyzeGuardrails(projectRoot, {
+  const includeNativeSessions = opts.includeNativeSessions !== false;
+  const includeImportedSessions = opts.includeImportedSessions !== false;
+  const includeGuardrails = opts.includeGuardrails !== false;
+
+  defineLazyProperty(snapshot, 'nativeSessions', includeNativeSessions ? () => parseNativeSessions(projectRoot) || [] : () => []);
+  defineLazyProperty(snapshot, 'importedSessions', includeImportedSessions ? () => importSessions(projectRoot) || [] : () => []);
+  defineLazyProperty(snapshot, 'guardrails', includeGuardrails ? () => analyzeGuardrails(projectRoot, {
     changedFiles,
     diffContent: '',
-  }));
+  }) : () => ({ warnings: [], surface: [], decisionLines: [] }));
 
   snapshotCache.set(signature, snapshot);
   return snapshot;
@@ -59,6 +63,9 @@ function buildSnapshotSignature(projectRoot, opts = {}) {
     projectRoot,
     String(opts.historyLimit || 20),
     String(opts.recentCommitLimit || 5),
+    String(opts.includeNativeSessions !== false),
+    String(opts.includeImportedSessions !== false),
+    String(opts.includeGuardrails !== false),
     fileSignature(path.join(projectRoot, '.mindswap', 'state.json')),
     dirSignature(path.join(projectRoot, '.mindswap', 'history')),
     fileSignature(path.join(projectRoot, '.mindswap', 'memory.json')),

@@ -698,9 +698,10 @@ function searchContext(projectRoot, query, type, snapshot = null) {
     for (const line of currentSnapshot.decisions) {
       addScoredResult(results, seen, {
         type: 'decision',
-        content: line,
+        content: createSearchSnippet(stripDecisionPrefix(line), queryTokens),
         source: 'decisions.log',
-      }, queryTokens, 1.2);
+        key: line,
+      }, queryTokens, 1.4, line, 4);
     }
   }
 
@@ -709,9 +710,10 @@ function searchContext(projectRoot, query, type, snapshot = null) {
     for (const entry of currentSnapshot.history) {
       addScoredResult(results, seen, {
         type: 'history',
-        content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
+        content: createSearchSnippet(entry.message, queryTokens),
         source: 'history',
-      }, queryTokens, 1.0, JSON.stringify(entry));
+        key: JSON.stringify(entry),
+      }, queryTokens, 1.1, JSON.stringify(entry), 2);
     }
   }
 
@@ -720,32 +722,36 @@ function searchContext(projectRoot, query, type, snapshot = null) {
     for (const item of listMemoryItemsFromSnapshot(currentSnapshot, { limit: 50 })) {
       addScoredResult(results, seen, {
         type: `memory:${item.type}`,
-        content: `${item.type}: ${item.message} [${item.status}]`,
+        content: createSearchSnippet(`${item.type}: ${item.message}`, queryTokens),
         source: 'memory',
-      }, queryTokens, item.status === 'open' ? 1.15 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`);
+        key: item.id || `${item.type}:${item.tag}:${item.message}`,
+      }, queryTokens, item.status === 'open' ? 1.4 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`, item.status === 'open' ? 3 : 1);
     }
 
     const state = currentSnapshot.state;
     if (state.current_task?.description) {
       addScoredResult(results, seen, {
         type: 'task',
-        content: `Current task: ${state.current_task.description} [${state.current_task.status}]`,
+        content: createSearchSnippet(`Current task: ${state.current_task.description}`, queryTokens),
         source: 'state.current_task',
-      }, queryTokens, 1.35, state.current_task.description);
+        key: state.current_task.description,
+      }, queryTokens, 1.8, state.current_task.description, 5);
     }
     if (state.project?.tech_stack?.length) {
       addScoredResult(results, seen, {
         type: 'project',
-        content: `Tech stack includes: ${state.project.tech_stack.join(', ')}`,
+        content: createSearchSnippet(`Tech stack: ${state.project.tech_stack.join(', ')}`, queryTokens),
         source: 'state.project',
-      }, queryTokens, 0.9, state.project.tech_stack.join(' '));
+        key: state.project.tech_stack.join(' '),
+      }, queryTokens, 0.8, state.project.tech_stack.join(' '), 1);
     }
     if (state.current_task?.blocker) {
       addScoredResult(results, seen, {
         type: 'blocker',
-        content: `Current blocker: ${state.current_task.blocker}`,
+        content: createSearchSnippet(`Current blocker: ${state.current_task.blocker}`, queryTokens),
         source: 'state.current_task',
-      }, queryTokens, 1.15, state.current_task.blocker);
+        key: state.current_task.blocker,
+      }, queryTokens, 1.7, state.current_task.blocker, 4);
     }
   }
 
@@ -761,9 +767,10 @@ function searchContext(projectRoot, query, type, snapshot = null) {
       ].filter(Boolean).join(' ');
       addScoredResult(results, seen, {
         type: 'native-session',
-        content: `${session.tool}${session.timestamp ? ` @ ${session.timestamp}` : ''}: ${session.summary || 'session context'}`,
+        content: createSearchSnippet(`${session.tool}: ${session.summary || 'session context'}`, queryTokens),
         source: session.tool,
-      }, queryTokens, 0.9, combined || session.rawText || session.tool);
+        key: `${session.tool}:${session.timestamp || ''}:${session.summary || session.rawText || ''}`,
+      }, queryTokens, 0.85, combined || session.rawText || session.tool, 0);
     }
 
     for (const session of currentSnapshot.importedSessions) {
@@ -771,9 +778,10 @@ function searchContext(projectRoot, query, type, snapshot = null) {
       const combined = [...(session.decisions || []), ...(session.context || [])].join(' ');
       addScoredResult(results, seen, {
         type: 'imported',
-        content: `${sourceLabel}: ${(session.context || session.decisions || []).slice(0, 3).join(' | ')}`,
+        content: createSearchSnippet(`${sourceLabel}: ${(session.context || session.decisions || []).slice(0, 3).join(' | ')}`, queryTokens),
         source: sourceLabel,
-      }, queryTokens, 0.8, combined);
+        key: `${sourceLabel}:${(session.context || session.decisions || []).join(' | ')}`,
+      }, queryTokens, 0.75, combined, 0);
     }
   }
 
@@ -787,7 +795,7 @@ function searchContext(projectRoot, query, type, snapshot = null) {
   }
 
   const topResults = results
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => (b.rank - a.rank) || (b.score - a.score))
     .slice(0, 15);
   const formatted = topResults.map(r => `[${r.type}] (${Math.round(r.score)}) ${r.content}`).join('\n');
   return {
@@ -1100,14 +1108,14 @@ function tokenize(query) {
   return [...expanded];
 }
 
-function addScoredResult(results, seen, entry, queryTokens, weight, haystackText = '') {
+function addScoredResult(results, seen, entry, queryTokens, weight, haystackText = '', rank = 0) {
   const text = haystackText || entry.content || '';
   const score = scoreText(text, queryTokens, weight);
   if (score <= 0) return;
-  const key = `${entry.type}::${entry.content}`;
+  const key = `${entry.type}::${entry.key || entry.content}`;
   if (seen.has(key)) return;
   seen.add(key);
-  results.push({ ...entry, score });
+  results.push({ ...entry, score, rank: entry.rank ?? rank ?? 0 });
 }
 
 function scoreText(text, queryTokens, weight = 1) {
@@ -1135,6 +1143,36 @@ function findLooseMatch(token, haystack) {
     token.replace(/tion$/, 't'),
   ].filter(Boolean);
   return variants.some(v => v !== token && v.length >= 3 && haystack.includes(v));
+}
+
+function stripDecisionPrefix(line) {
+  return String(line || '').replace(/^\[.*?\]\s*\[.*?\]\s*/, '').trim();
+}
+
+function createSearchSnippet(text, queryTokens, maxLength = 140) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  if (!queryTokens || queryTokens.length === 0) return clean.slice(0, maxLength);
+
+  const lower = clean.toLowerCase();
+  let index = -1;
+  for (const token of queryTokens) {
+    const candidate = lower.indexOf(token);
+    if (candidate >= 0 && (index < 0 || candidate < index)) {
+      index = candidate;
+    }
+  }
+
+  if (index < 0) {
+    return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}…` : clean;
+  }
+
+  const start = Math.max(0, index - 40);
+  const end = Math.min(clean.length, index + 100);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < clean.length ? '…' : '';
+  const snippet = clean.slice(start, end);
+  return `${prefix}${snippet}${suffix}`;
 }
 
 function getSnapshotOptionsForContext(focus, compact) {
