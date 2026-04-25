@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 
 const { readState, getDataDir, getHistory } = require('./state');
-const { isGitRepo, getCurrentBranch, getAllChangedFiles, getRecentCommits } = require('./git');
 const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require('./narrative');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
@@ -31,6 +30,7 @@ const {
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 const { buildResumeBriefing, gatherResumeData } = require('./resume');
+const { createProjectSnapshot, readDecisionLines } = require('./project-snapshot');
 
 /**
  * Start the mindswap MCP server.
@@ -433,7 +433,7 @@ async function startMCPHttpServer(options = {}) {
 // Tool implementations
 // ═══════════════════════════════════════════════════
 
-function getContext(projectRoot, focus, compact) {
+function getContext(projectRoot, focus, compact, snapshot = null) {
   const dataDir = getDataDir(projectRoot);
   if (!fs.existsSync(dataDir)) {
     return {
@@ -444,8 +444,9 @@ function getContext(projectRoot, focus, compact) {
     };
   }
 
-  const state = readState(projectRoot);
-  const liveData = gatherLiveData(projectRoot);
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const state = currentSnapshot.state;
+  const liveData = snapshotToLiveData(currentSnapshot);
 
   if (compact) {
     const compactText = buildCompactNarrative(state, liveData);
@@ -483,7 +484,7 @@ function getContext(projectRoot, focus, compact) {
       sections.push(`## Decisions\n${stripped.map(d => `- ${d}`).join('\n')}`);
     }
 
-    const memoryLines = formatMemorySection(projectRoot);
+    const memoryLines = formatMemorySection(currentSnapshot);
     if (memoryLines.length > 0) {
       sections.push(`## Structured Memory\n${memoryLines.join('\n')}`);
     }
@@ -665,7 +666,7 @@ function saveContext(projectRoot, { summary, decisions, assumptions, questions, 
   };
 }
 
-function searchContext(projectRoot, query, type) {
+function searchContext(projectRoot, query, type, snapshot = null) {
   const dataDir = getDataDir(projectRoot);
   if (!fs.existsSync(dataDir)) {
     return {
@@ -673,32 +674,25 @@ function searchContext(projectRoot, query, type) {
     };
   }
 
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 50, recentCommitLimit: 5 });
   const queryTokens = tokenize(query);
   const results = [];
   const seen = new Set();
 
   // Search decisions
   if (type === 'all' || type === 'decisions') {
-    const decisionsPath = path.join(dataDir, 'decisions.log');
-    if (fs.existsSync(decisionsPath)) {
-      const lines = fs.readFileSync(decisionsPath, 'utf-8')
-        .split('\n')
-        .filter(l => l.startsWith('['));
-
-      for (const line of lines) {
-        addScoredResult(results, seen, {
-          type: 'decision',
-          content: line,
-          source: 'decisions.log',
-        }, queryTokens, 1.2);
-      }
+    for (const line of currentSnapshot.decisions) {
+      addScoredResult(results, seen, {
+        type: 'decision',
+        content: line,
+        source: 'decisions.log',
+      }, queryTokens, 1.2);
     }
   }
 
   // Search history
   if (type === 'all' || type === 'history') {
-    const history = getHistory(projectRoot, 50);
-    for (const entry of history) {
+    for (const entry of currentSnapshot.history) {
       addScoredResult(results, seen, {
         type: 'history',
         content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
@@ -709,8 +703,7 @@ function searchContext(projectRoot, query, type) {
 
   // Search current state
   if (type === 'all') {
-    const memoryItems = getRecentMemoryItems(projectRoot, 50);
-    for (const item of memoryItems) {
+    for (const item of listMemoryItemsFromSnapshot(currentSnapshot, { limit: 50 })) {
       addScoredResult(results, seen, {
         type: `memory:${item.type}`,
         content: `${item.type}: ${item.message} [${item.status}]`,
@@ -718,7 +711,7 @@ function searchContext(projectRoot, query, type) {
       }, queryTokens, item.status === 'open' ? 1.15 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`);
     }
 
-    const state = readState(projectRoot);
+    const state = currentSnapshot.state;
     if (state.current_task?.description) {
       addScoredResult(results, seen, {
         type: 'task',
@@ -743,8 +736,7 @@ function searchContext(projectRoot, query, type) {
   }
 
   if (type === 'all') {
-    const nativeSessions = parseNativeSessions(projectRoot) || [];
-    for (const session of nativeSessions) {
+    for (const session of currentSnapshot.nativeSessions) {
       const combined = [
         session.summary || '',
         session.blockers?.join(' '),
@@ -760,8 +752,7 @@ function searchContext(projectRoot, query, type) {
       }, queryTokens, 0.9, combined || session.rawText || session.tool);
     }
 
-    const imported = importSessions(projectRoot) || [];
-    for (const session of imported) {
+    for (const session of currentSnapshot.importedSessions) {
       const sourceLabel = session.tool || 'session';
       const combined = [...(session.decisions || []), ...(session.context || [])].join(' ');
       addScoredResult(results, seen, {
@@ -793,17 +784,18 @@ function searchContext(projectRoot, query, type) {
   };
 }
 
-function renderContextText(projectRoot, focus = 'all', compact = false) {
-  const context = getContext(projectRoot, focus, compact);
+function renderContextText(projectRoot, focus = 'all', compact = false, snapshot = null) {
+  const context = getContext(projectRoot, focus, compact, snapshot);
   return context?.content?.[0]?.text || '';
 }
 
-function readStableResource(projectRoot, kind) {
-  const state = readState(projectRoot);
-  const liveData = gatherLiveData(projectRoot);
-  const memory = readMemory(projectRoot);
+function readStableResource(projectRoot, kind, snapshot = null) {
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const state = currentSnapshot.state;
+  const liveData = snapshotToLiveData(currentSnapshot);
+  const memory = currentSnapshot.memory;
   const handoffPath = path.join(projectRoot, 'HANDOFF.md');
-  const handoffText = fs.existsSync(handoffPath) ? fs.readFileSync(handoffPath, 'utf-8') : renderContextText(projectRoot, 'all', false);
+  const handoffText = fs.existsSync(handoffPath) ? fs.readFileSync(handoffPath, 'utf-8') : renderContextText(projectRoot, 'all', false, currentSnapshot);
 
   switch (kind) {
     case 'context':
@@ -883,8 +875,8 @@ function readRequestBody(req) {
   });
 }
 
-function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}) {
-  const contextText = renderContextText(projectRoot, compact ? 'task' : 'all', Boolean(compact));
+function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}, snapshot = null) {
+  const contextText = renderContextText(projectRoot, compact ? 'task' : 'all', Boolean(compact), snapshot);
   const lines = ['You are starting work in this repository.'];
   if (tool) lines.push(`Target tool: ${tool}.`);
   if (goal) lines.push(`Goal: ${goal}.`);
@@ -897,8 +889,9 @@ function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}) {
   return lines.join('\n');
 }
 
-function buildResumeWorkPrompt(projectRoot, { compact } = {}) {
-  const briefing = buildResumeBriefing(readState(projectRoot), gatherResumeData(projectRoot), { compact });
+function buildResumeWorkPrompt(projectRoot, { compact } = {}, snapshot = null) {
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const briefing = buildResumeBriefing(currentSnapshot.state, gatherResumeData(projectRoot, currentSnapshot), { compact });
   const lines = [
     'Resume this workstream from the current repo state.',
     '',
@@ -919,8 +912,8 @@ function buildResumeWorkPrompt(projectRoot, { compact } = {}) {
   return lines.join('\n');
 }
 
-function buildHandoffPrompt(projectRoot, { audience } = {}) {
-  const contextText = renderContextText(projectRoot, 'all', false);
+function buildHandoffPrompt(projectRoot, { audience } = {}, snapshot = null) {
+  const contextText = renderContextText(projectRoot, 'all', false, snapshot);
   const lines = [
     audience ? `Prepare a handoff for ${audience}.` : 'Prepare a handoff for the next agent.',
     'Summarize what changed, what is still open, and what should happen next.',
@@ -933,8 +926,8 @@ function buildHandoffPrompt(projectRoot, { audience } = {}) {
   return lines.join('\n');
 }
 
-function buildConflictReviewPrompt(projectRoot, { focus } = {}) {
-  const contextText = renderContextText(projectRoot, 'decisions', false);
+function buildConflictReviewPrompt(projectRoot, { focus } = {}, snapshot = null) {
+  const contextText = renderContextText(projectRoot, 'decisions', false, snapshot);
   const lines = [
     focus ? `Review conflicts with a focus on ${focus}.` : 'Review the current decision and dependency conflicts.',
     'Identify contradictions, explain the impact, and propose the smallest safe resolution.',
@@ -1059,36 +1052,20 @@ function manageMemory(projectRoot, opts = {}) {
 // ═══════════════════════════════════════════════════
 
 function gatherLiveData(projectRoot) {
-  const data = {
-    branch: null,
-    changedFiles: [],
-    recentCommits: [],
-    decisions: [],
-    history: [],
-    nativeSessions: [],
+  return snapshotToLiveData(createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 }));
+}
+
+function snapshotToLiveData(snapshot) {
+  return {
+    branch: snapshot.branch,
+    changedFiles: snapshot.changedFiles,
+    recentCommits: snapshot.recentCommits,
+    decisions: snapshot.decisions,
+    history: snapshot.history,
+    nativeSessions: snapshot.nativeSessions,
+    structuredMemory: snapshot.memory?.items || [],
+    guardrails: snapshot.guardrails,
   };
-
-  if (isGitRepo(projectRoot)) {
-    data.branch = getCurrentBranch(projectRoot);
-    data.changedFiles = getAllChangedFiles(projectRoot);
-    data.recentCommits = getRecentCommits(projectRoot, 5);
-  }
-
-  const decisionsPath = path.join(projectRoot, '.mindswap', 'decisions.log');
-  if (fs.existsSync(decisionsPath)) {
-    data.decisions = fs.readFileSync(decisionsPath, 'utf-8')
-      .split('\n')
-      .filter(l => l.startsWith('['));
-  }
-
-  data.structuredMemory = getRecentMemoryItems(projectRoot, 20);
-  data.history = getHistory(projectRoot, 5);
-  data.nativeSessions = parseNativeSessions(projectRoot);
-  data.guardrails = analyzeGuardrails(projectRoot, {
-    changedFiles: data.changedFiles,
-    diffContent: '',
-  });
-  return data;
 }
 
 function tokenize(query) {
@@ -1164,15 +1141,49 @@ const QUERY_ALIASES = {
   ui: ['frontend', 'component', 'page', 'view'],
 };
 
-function formatMemorySection(projectRoot) {
+function formatMemorySection(snapshot) {
   const lines = [];
-  for (const item of getOpenMemoryItems(projectRoot, 'blocker', 5)) lines.push(`- BLOCKER: ${item.message}`);
-  for (const item of getOpenMemoryItems(projectRoot, 'question', 5)) lines.push(`- QUESTION: ${item.message}`);
-  for (const item of getOpenMemoryItems(projectRoot, 'assumption', 5)) lines.push(`- ASSUMPTION: ${item.message}`);
-  for (const item of getRecentMemoryItems(projectRoot, 10).filter(item => item.type === 'resolution').slice(-5)) {
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'blocker', status: 'open', limit: 5 })) lines.push(`- BLOCKER: ${item.message}`);
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'question', status: 'open', limit: 5 })) lines.push(`- QUESTION: ${item.message}`);
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'assumption', status: 'open', limit: 5 })) lines.push(`- ASSUMPTION: ${item.message}`);
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'resolution', limit: 10 }).slice(-5)) {
     lines.push(`- RESOLUTION: ${item.message}`);
   }
   return lines;
+}
+
+function getSnapshotMemoryItems(snapshot, opts = {}) {
+  const items = Array.isArray(snapshot.memory?.items) ? snapshot.memory.items.slice() : [];
+  let filtered = items;
+  if (opts.type) {
+    const types = Array.isArray(opts.type) ? opts.type : [opts.type];
+    filtered = filtered.filter(item => types.includes(item.type));
+  }
+  if (opts.status) {
+    filtered = filtered.filter(item => item.status === opts.status);
+  }
+  if (opts.source) {
+    const sources = Array.isArray(opts.source) ? opts.source : [opts.source];
+    filtered = filtered.filter(item => sources.includes(item.source));
+  }
+  if (opts.author) {
+    const authors = Array.isArray(opts.author) ? opts.author : [opts.author];
+    filtered = filtered.filter(item => authors.includes(item.author));
+  }
+  if (opts.limit) {
+    const limit = Number(opts.limit);
+    if (Number.isFinite(limit) && limit > 0) {
+      filtered = filtered.slice(-limit);
+    }
+  }
+  return filtered;
+}
+
+function listMemoryItemsFromSnapshot(snapshot, opts = {}) {
+  return getSnapshotMemoryItems(snapshot, {
+    ...opts,
+    includeArchived: opts.includeArchived || opts.status === 'archived',
+  });
 }
 
 function formatMemoryResult(result) {

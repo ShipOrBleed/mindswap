@@ -2,6 +2,7 @@ const fs = require('fs');
 const chalk = require('chalk');
 const { getDataDir, readState } = require('./state');
 const { searchContext } = require('./mcp-server');
+const { createProjectSnapshot } = require('./project-snapshot');
 
 async function ask(projectRoot, question, opts = {}) {
   const dataDir = getDataDir(projectRoot);
@@ -16,8 +17,9 @@ async function ask(projectRoot, question, opts = {}) {
     return;
   }
 
-  const state = readState(projectRoot);
-  const search = searchContext(projectRoot, query, 'all');
+  const snapshot = createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const state = snapshot.state || readState(projectRoot);
+  const search = searchContext(projectRoot, query, 'all', snapshot);
   const results = parseSearchResults(search?.content?.[0]?.text || '');
   const payload = buildAnswerPayload(query, results, state);
 
