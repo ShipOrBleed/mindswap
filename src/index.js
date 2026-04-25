@@ -26,6 +26,7 @@ const { parseNativeSessions } = require('./session-parser');
 const { analyzeGuardrails } = require('./guardrails');
 const { pr } = require('./pr');
 const { createMCPServer, startMCPServer, startMCPHttpServer, manageMemory } = require('./mcp-server');
+const { buildRegistryManifest, writeRegistryManifest, readRegistryManifest, validateRegistryMetadata, buildRegistryReport } = require('./registry');
 const { readMemory, appendMemoryItem, getMemoryItems, getMemoryItemById, updateMemoryItem, resolveMemoryItem, archiveMemoryItem, deleteMemoryItem, listMemoryItems } = require('./memory');
 const { doctor } = require('./doctor');
 
@@ -73,6 +74,11 @@ module.exports = {
   startMCPServer,
   startMCPHttpServer,
   manageMemory,
+  buildRegistryManifest,
+  writeRegistryManifest,
+  readRegistryManifest,
+  validateRegistryMetadata,
+  buildRegistryReport,
   readMemory,
   appendMemoryItem,
   getMemoryItems,

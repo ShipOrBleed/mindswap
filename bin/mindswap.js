@@ -21,6 +21,7 @@ const { manageMemory, startMCPServer, startMCPHttpServer } = require('../src/mcp
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { doctor } = require('../src/doctor');
+const { buildRegistryReport, readRegistryManifest, writeRegistryManifest } = require('../src/registry');
 
 const program = new Command();
 
@@ -403,6 +404,53 @@ program
       process.stdout.write(`mindswap MCP HTTP listening on ${httpServer.url}\n`);
     } catch (err) {
       process.stderr.write(`mindswap MCP error: ${err.message}\n`);
+      process.exit(1);
+    }
+  });
+
+// ─── registry ───
+program
+  .command('registry')
+  .description('Validate and generate MCP Registry metadata for this package.')
+  .option('--write', 'Write or update server.json from package metadata')
+  .option('--remote-url <url>', 'Include a remote Streamable HTTP endpoint in server.json')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      const packageJson = pkg;
+      const projectRoot = process.cwd();
+      let manifest = readRegistryManifest(projectRoot);
+      if (opts.write || !manifest) {
+        const written = writeRegistryManifest(projectRoot, packageJson, {
+          remoteUrl: opts.remoteUrl,
+        });
+        manifest = written.manifest;
+      }
+      const report = buildRegistryReport(packageJson, manifest, {
+        requireRemote: Boolean(opts.remoteUrl),
+      });
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`\nMCP Registry\n`);
+      process.stdout.write(`  package: ${report.package.name}@${report.package.version}\n`);
+      process.stdout.write(`  mcpName: ${report.package.mcpName || 'missing'}\n`);
+      process.stdout.write(`  server.json: ${report.ready ? 'ready' : 'needs attention'}\n`);
+      if (report.issues.length) {
+        process.stdout.write(`  issues:\n`);
+        for (const issue of report.issues) {
+          process.stdout.write(`    - ${issue}\n`);
+        }
+      } else {
+        process.stdout.write(`  checklist:\n`);
+        for (const item of report.checklist) {
+          process.stdout.write(`    - ${item}\n`);
+        }
+      }
+      process.stdout.write(`\nNext: mcp-publisher login github && mcp-publisher publish\n`);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
       process.exit(1);
     }
   });

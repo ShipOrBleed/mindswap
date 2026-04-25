@@ -73,7 +73,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 17 commands
+## 18 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -89,6 +89,7 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap ask <question>` | — | Semantic question answering from project memory and history. `--json` for machine use |
 | `mindswap contracts` | — | Emit machine-readable interface contracts for the current workstream |
 | `mindswap sync` | — | Push, pull, or inspect shared hub state. `--push`, `--pull`, `--force`, `--hub` |
+| `mindswap registry` | — | Validate and generate MCP Registry metadata. `--write`, `--remote-url`, `--json` |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |
@@ -218,6 +219,10 @@ The MCP surface stays small by design. [Research shows](https://dev.to/aws-heroe
 | `mindswap://decisions/recent` | Recent decisions plus conflict signals |
 | `mindswap://memory/current` | Structured memory JSON |
 | `mindswap://handoff/current` | Current `HANDOFF.md` content or a fallback |
+
+### Registry metadata
+
+`server.json` is committed at the repo root and kept in sync with the published npm package metadata. Run `npx mindswap registry --write` to regenerate it from the current package metadata, or `npx mindswap registry --json` to inspect readiness before publishing with `mcp-publisher`.
 
 ## Security
 
