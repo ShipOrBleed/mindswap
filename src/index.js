@@ -25,7 +25,9 @@ const { detectMonorepo } = require('./monorepo');
 const { parseNativeSessions } = require('./session-parser');
 const { analyzeGuardrails } = require('./guardrails');
 const { pr } = require('./pr');
-const { readMemory, appendMemoryItem, getMemoryItems } = require('./memory');
+const { createMCPServer, startMCPServer, startMCPHttpServer, manageMemory } = require('./mcp-server');
+const { buildRegistryManifest, writeRegistryManifest, readRegistryManifest, validateRegistryMetadata, buildRegistryReport } = require('./registry');
+const { readMemory, appendMemoryItem, getMemoryItems, getMemoryItemById, updateMemoryItem, resolveMemoryItem, archiveMemoryItem, deleteMemoryItem, listMemoryItems } = require('./memory');
 const { doctor } = require('./doctor');
 
 module.exports = {
@@ -68,8 +70,23 @@ module.exports = {
   parseNativeSessions,
   analyzeGuardrails,
   pr,
+  createMCPServer,
+  startMCPServer,
+  startMCPHttpServer,
+  manageMemory,
+  buildRegistryManifest,
+  writeRegistryManifest,
+  readRegistryManifest,
+  validateRegistryMetadata,
+  buildRegistryReport,
   readMemory,
   appendMemoryItem,
   getMemoryItems,
+  getMemoryItemById,
+  updateMemoryItem,
+  resolveMemoryItem,
+  archiveMemoryItem,
+  deleteMemoryItem,
+  listMemoryItems,
   doctor,
 };

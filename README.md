@@ -73,7 +73,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 15 commands
+## 18 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -82,12 +82,14 @@ Everything else is automatic — git hooks track commits, dependencies are auto-
 | `mindswap switch <tool>` | `sw` | One-command tool switch — save + generate + open (cursor/claude/copilot/codex/windsurf) |
 | `mindswap done [msg]` | `d` | Mark task complete, archive to history, reset to idle |
 | `mindswap log <msg>` | `l` | Log a memory item. Decisions warn on conflicts; use `--type` for blockers, assumptions, questions, and resolutions |
+| `mindswap memory <action>` | — | Manage structured memory items directly. Actions: `list`, `get`, `add`, `update`, `resolve`, `archive`, `delete` |
 | `mindswap status` | `s` | Current state — task, branch, build/test, conflicts. `--stats` for charts |
 | `mindswap doctor` | — | Diagnose setup, hook health, stale context files, conflicts, and missing continuity signals. `--json` for automation |
 | `mindswap resume` | — | Action-oriented briefing — state, blockers, and the next best move. `--compact` / `--json` |
 | `mindswap ask <question>` | — | Semantic question answering from project memory and history. `--json` for machine use |
 | `mindswap contracts` | — | Emit machine-readable interface contracts for the current workstream |
 | `mindswap sync` | — | Push, pull, or inspect shared hub state. `--push`, `--pull`, `--force`, `--hub` |
+| `mindswap registry` | — | Validate and generate MCP Registry metadata. `--write`, `--remote-url`, `--json` |
 | `mindswap summary` | `sum` | Full session narrative — task, commits, decisions, conflicts. `--json` for scripts |
 | `mindswap gen --all` | `gen` | Generate context files for all AI tools. Safe merge — never overwrites |
 | `mindswap watch` | `w` | Background watcher — auto-updates HANDOFF.md, or all context files with `--all`; `--save` runs a full save cycle |
@@ -128,6 +130,8 @@ npx mindswap log "Need prod webhook secret" --type blocker
 npx mindswap log "Assume single-region rollout for MVP" --type assumption
 npx mindswap log "Should we rotate refresh tokens?" --type question
 npx mindswap log "Moved to JWT after auth review" --type resolution
+npx mindswap memory list --type blocker
+npx mindswap memory resolve abc12345 "Auth review approved"
 ```
 
 Generated context files surface unresolved blockers and questions separately so the next AI does not have to infer them from free-form notes.
@@ -179,10 +183,11 @@ Next.js, Remix, Astro, SolidJS, Angular, NestJS, Express, Fastify, Hono, Django,
 
 ## MCP Server
 
-AI tools can query mindswap natively via [Model Context Protocol](https://modelcontextprotocol.io/) instead of reading static files. 3 tools, stdio transport.
+AI tools can query mindswap natively via [Model Context Protocol](https://modelcontextprotocol.io/) instead of reading static files. 4 tools + workflow prompts, plus a remote Streamable HTTP transport for hosted and browser-based clients.
 
 ```bash
 npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
+npx mindswap mcp-http      # start a remote MCP endpoint on http://127.0.0.1:3000/mcp
 ```
 
 | MCP Tool | When AI calls it | What it returns |
@@ -190,8 +195,40 @@ npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
 | `mindswap_get_context` | Session start — "What do I need to know?" | Synthesized briefing: task, decisions, conflicts, tests, recent work, native session findings |
 | `mindswap_save_context` | Session end — "Here's what I did" | Persists summary, decisions, next steps, blockers |
 | `mindswap_search` | Mid-session — "What did we decide about auth?" | Searches decisions + history + state |
+| `mindswap_memory` | When the agent needs to manage blockers, questions, assumptions, or resolutions | Lists, adds, updates, resolves, archives, or deletes structured memory items |
 
-Only 3 tools by design. [Research shows](https://dev.to/aws-heroes/mcp-tool-design-why-your-ai-agent-is-failing-and-how-to-fix-it-40fc) AI accuracy drops from 82% to 73% past 20 tools. We chose quality over quantity.
+### MCP prompts
+
+| Prompt | When AI calls it | What it prepares |
+|--------|------------------|------------------|
+| `mindswap_start_work` | Starting a fresh session | A context-rich prompt to pick the next safe action |
+| `mindswap_resume_work` | Resuming after a break | A restart prompt with blockers, state, and next steps |
+| `mindswap_prepare_handoff` | Handing off to another agent | A compact handoff brief with files, commands, and open items |
+| `mindswap_review_conflicts` | Before changing risky areas | A conflict-review prompt focused on decision and dependency drift |
+
+The MCP surface stays small by design. [Research shows](https://dev.to/aws-heroes/mcp-tool-design-why-your-ai-agent-is-failing-and-how-to-fix-it-40fc) AI accuracy drops from 82% to 73% past 20 tools. We chose quality over quantity.
+
+`mcp-http` supports an optional bearer token, so browser clients can connect to a hosted endpoint without exposing the full local CLI surface.
+
+### MCP resources
+
+| Resource | What it exposes |
+|----------|-----------------|
+| `mindswap://context/current` | The current synthesized project context |
+| `mindswap://state/current` | Machine-readable state JSON |
+| `mindswap://decisions/recent` | Recent decisions plus conflict signals |
+| `mindswap://memory/current` | Structured memory JSON |
+| `mindswap://handoff/current` | Current `HANDOFF.md` content or a fallback |
+
+### Registry metadata
+
+`server.json` is committed at the repo root and kept in sync with the published npm package metadata. Run `npx mindswap registry --write` to regenerate it from the current package metadata, or `npx mindswap registry --json` to inspect readiness before publishing with `mcp-publisher`.
+
+### MCP distribution
+
+The publishing workflow and target marketplaces are documented in:
+- [MCP distribution guide](docs/mcp-distribution.md)
+- [MCP marketplace matrix](docs/mcp-marketplaces.md)
 
 ## Security
 

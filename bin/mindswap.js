@@ -17,10 +17,11 @@ const { resume } = require('../src/resume');
 const { ask } = require('../src/ask');
 const { contracts } = require('../src/contracts');
 const { sync } = require('../src/sync');
+const { manageMemory, startMCPServer, startMCPHttpServer } = require('../src/mcp-server');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
-const { startMCPServer } = require('../src/mcp-server');
 const { doctor } = require('../src/doctor');
+const { buildRegistryReport, readRegistryManifest, writeRegistryManifest } = require('../src/registry');
 
 const program = new Command();
 
@@ -98,6 +99,54 @@ program
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── memory ───
+program
+  .command('memory <action> [id] [message...]')
+  .description('Manage structured memory items. Actions: list, get, add, update, resolve, archive, delete')
+  .option('-t, --type <type>', 'Memory type')
+  .option('--tag <tag>', 'Tag filter or value')
+  .option('--status <status>', 'Status filter or value')
+  .option('--author <author>', 'Author filter or value')
+  .option('--source <source>', 'Source filter or value')
+  .option('--limit <limit>', 'Limit results', '20')
+  .option('--after <iso>', 'Created after timestamp')
+  .option('--before <iso>', 'Created before timestamp')
+  .option('--hard', 'Permanently delete instead of archiving')
+  .option('--json', 'Output as JSON')
+  .action(async (action, id, messageParts, opts) => {
+    try {
+      const message = action === 'add'
+        ? [id, ...(Array.isArray(messageParts) ? messageParts : [messageParts])].filter(Boolean).join(' ').trim()
+        : (Array.isArray(messageParts) ? messageParts.join(' ').trim() : String(messageParts || '').trim());
+      const result = manageMemory(process.cwd(), {
+        action,
+        id: action === 'add' ? undefined : id,
+        message,
+        type: opts.type,
+        tag: opts.tag,
+        status: opts.status,
+        author: opts.author,
+        source: opts.source,
+        limit: opts.limit,
+        created_after: opts.after,
+        created_before: opts.before,
+        hard: opts.hard,
+        json: opts.json,
+      });
+      if (result?.content?.length) {
+        for (const item of result.content) {
+          if (item?.type === 'text' && item.text) {
+            process.stdout.write(`${item.text}\n`);
+          }
+        }
+      }
+      if (result?.exitCode) process.exitCode = result.exitCode;
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
@@ -330,6 +379,78 @@ program
       await startMCPServer();
     } catch (err) {
       process.stderr.write(`mindswap MCP error: ${err.message}\n`);
+      process.exit(1);
+    }
+  });
+
+// ─── mcp-http ───
+program
+  .command('mcp-http')
+  .description('Start mindswap as a remote MCP server over Streamable HTTP.')
+  .option('--host <host>', 'Host to bind to', '127.0.0.1')
+  .option('--port <port>', 'Port to listen on', '3000')
+  .option('--path <path>', 'MCP endpoint path', '/mcp')
+  .option('--token <token>', 'Bearer token required for requests')
+  .option('--origin <origin>', 'CORS allow-origin header', '*')
+  .action(async (opts) => {
+    try {
+      const httpServer = await startMCPHttpServer({
+        host: opts.host,
+        port: opts.port,
+        path: opts.path,
+        token: opts.token,
+        origin: opts.origin,
+      });
+      process.stdout.write(`mindswap MCP HTTP listening on ${httpServer.url}\n`);
+    } catch (err) {
+      process.stderr.write(`mindswap MCP error: ${err.message}\n`);
+      process.exit(1);
+    }
+  });
+
+// ─── registry ───
+program
+  .command('registry')
+  .description('Validate and generate MCP Registry metadata for this package.')
+  .option('--write', 'Write or update server.json from package metadata')
+  .option('--remote-url <url>', 'Include a remote Streamable HTTP endpoint in server.json')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      const packageJson = pkg;
+      const projectRoot = process.cwd();
+      let manifest = readRegistryManifest(projectRoot);
+      if (opts.write || !manifest) {
+        const written = writeRegistryManifest(projectRoot, packageJson, {
+          remoteUrl: opts.remoteUrl,
+        });
+        manifest = written.manifest;
+      }
+      const report = buildRegistryReport(packageJson, manifest, {
+        requireRemote: Boolean(opts.remoteUrl),
+      });
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`\nMCP Registry\n`);
+      process.stdout.write(`  package: ${report.package.name}@${report.package.version}\n`);
+      process.stdout.write(`  mcpName: ${report.package.mcpName || 'missing'}\n`);
+      process.stdout.write(`  server.json: ${report.ready ? 'ready' : 'needs attention'}\n`);
+      if (report.issues.length) {
+        process.stdout.write(`  issues:\n`);
+        for (const issue of report.issues) {
+          process.stdout.write(`    - ${issue}\n`);
+        }
+      } else {
+        process.stdout.write(`  checklist:\n`);
+        for (const item of report.checklist) {
+          process.stdout.write(`    - ${item}\n`);
+        }
+      }
+      process.stdout.write(`\nNext: mcp-publisher login github && mcp-publisher publish\n`);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
       process.exit(1);
     }
   });

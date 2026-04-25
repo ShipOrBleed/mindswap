@@ -1,5 +1,8 @@
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+const http = require('http');
+const { randomUUID } = require('crypto');
 const { z } = require('zod');
 const fs = require('fs');
 const path = require('path');
@@ -11,17 +14,29 @@ const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
 const { importSessions } = require('./session-import');
-const { appendMemoryItem, getOpenMemoryItems, getRecentMemoryItems } = require('./memory');
+const {
+  MEMORY_TYPES,
+  MEMORY_STATUSES,
+  appendMemoryItem,
+  getMemoryItemById,
+  getOpenMemoryItems,
+  getRecentMemoryItems,
+  listMemoryItems,
+  readMemory,
+  updateMemoryItem,
+  resolveMemoryItem,
+  archiveMemoryItem,
+  deleteMemoryItem,
+} = require('./memory');
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
+const { buildResumeBriefing, gatherResumeData } = require('./resume');
 
 /**
  * Start the mindswap MCP server.
- * 3 tools. That's it.
+ * Core tools for context, saving, search, and structured memory.
  */
-async function startMCPServer() {
-  const projectRoot = process.cwd();
-
+function createMCPServer(projectRoot) {
   const server = new McpServer({
     name: 'mindswap',
     version: '2.2.0',
@@ -95,9 +110,323 @@ async function startMCPServer() {
     }
   );
 
-  // Start the server
+  // ═══════════════════════════════════════════════════
+  // TOOL 4: mindswap_memory
+  // Structured memory CRUD for blockers, questions, assumptions, resolutions.
+  // ═══════════════════════════════════════════════════
+  server.tool(
+    'mindswap_memory',
+    `Manage structured memory items. Use this to list, add, update, resolve, archive, or delete blockers, assumptions, questions, and resolutions.`,
+    {
+      action: z.enum(['list', 'get', 'add', 'update', 'resolve', 'archive', 'delete'])
+        .describe('Operation to perform on memory'),
+      id: z.string().optional()
+        .describe('Memory item id for get/update/resolve/archive/delete'),
+      type: z.enum([...MEMORY_TYPES]).optional()
+        .describe('Memory type for add or filtering'),
+      message: z.string().optional()
+        .describe('Message for add/update'),
+      tag: z.string().optional()
+        .describe('Tag for add/update or filtering'),
+      status: z.enum([...MEMORY_STATUSES]).optional()
+        .describe('Status for add/update or filtering'),
+      author: z.string().optional()
+        .describe('Author for add/update or filtering'),
+      source: z.string().optional()
+        .describe('Source for add/update or filtering'),
+      limit: z.number().int().positive().max(200).optional()
+        .describe('Max number of items to return when listing'),
+      after: z.string().optional()
+        .describe('Only include items created after this timestamp'),
+      before: z.string().optional()
+        .describe('Only include items created before this timestamp'),
+      hard: z.boolean().default(false)
+        .describe('Hard delete instead of archiving'),
+      json: z.boolean().default(false)
+        .describe('Return JSON instead of formatted text'),
+    },
+    async (args) => {
+      return manageMemory(projectRoot, args);
+    }
+  );
+
+  // ═══════════════════════════════════════════════════
+  // RESOURCES: stable read-only artifacts for clients
+  // ═══════════════════════════════════════════════════
+  server.registerResource(
+    'mindswap_context_current',
+    'mindswap://context/current',
+    {
+      title: 'Current Context',
+      description: 'The current synthesized project context in text form.',
+    },
+    async () => readStableResource(projectRoot, 'context')
+  );
+
+  server.registerResource(
+    'mindswap_state_current',
+    'mindswap://state/current',
+    {
+      title: 'Current State',
+      description: 'The current machine-readable mindswap state as JSON.',
+    },
+    async () => readStableResource(projectRoot, 'state')
+  );
+
+  server.registerResource(
+    'mindswap_decisions_recent',
+    'mindswap://decisions/recent',
+    {
+      title: 'Recent Decisions',
+      description: 'Recent decisions and conflict signals as JSON.',
+    },
+    async () => readStableResource(projectRoot, 'decisions')
+  );
+
+  server.registerResource(
+    'mindswap_memory_current',
+    'mindswap://memory/current',
+    {
+      title: 'Structured Memory',
+      description: 'All structured memory items as JSON.',
+    },
+    async () => readStableResource(projectRoot, 'memory')
+  );
+
+  server.registerResource(
+    'mindswap_handoff_current',
+    'mindswap://handoff/current',
+    {
+      title: 'Current Handoff',
+      description: 'The generated HANDOFF.md content or a synthesized fallback.',
+    },
+    async () => readStableResource(projectRoot, 'handoff')
+  );
+
+  // ═══════════════════════════════════════════════════
+  // PROMPTS: workflow templates for common handoff actions
+  // ═══════════════════════════════════════════════════
+  server.registerPrompt(
+    'mindswap_start_work',
+    {
+      title: 'Start Work',
+      description: 'Prepare a focused prompt for continuing active work in this repo.',
+      argsSchema: {
+        goal: z.string().optional().describe('Optional goal or feature to focus on'),
+        tool: z.string().optional().describe('Optional AI tool name for wording adjustments'),
+        compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
+      },
+    },
+    async ({ goal, tool, compact }) => ({
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: buildStartWorkPrompt(projectRoot, { goal, tool, compact: String(compact).toLowerCase() === 'true' }),
+        },
+      }],
+    })
+  );
+
+  server.registerPrompt(
+    'mindswap_resume_work',
+    {
+      title: 'Resume Work',
+      description: 'Prepare a restart prompt that emphasizes blockers and the next best action.',
+      argsSchema: {
+        compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
+      },
+    },
+    async ({ compact }) => ({
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: buildResumeWorkPrompt(projectRoot, { compact: String(compact).toLowerCase() === 'true' }),
+        },
+      }],
+    })
+  );
+
+  server.registerPrompt(
+    'mindswap_prepare_handoff',
+    {
+      title: 'Prepare Handoff',
+      description: 'Generate a handoff prompt that asks for the exact summary another agent needs.',
+      argsSchema: {
+        audience: z.string().optional().describe('Optional recipient or tool name'),
+      },
+    },
+    async ({ audience }) => ({
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: buildHandoffPrompt(projectRoot, { audience }),
+        },
+      }],
+    })
+  );
+
+  server.registerPrompt(
+    'mindswap_review_conflicts',
+    {
+      title: 'Review Conflicts',
+      description: 'Review decision and dependency conflicts before making changes.',
+      argsSchema: {
+        focus: z.string().optional().describe('Optional area to focus on, such as auth or database'),
+      },
+    },
+    async ({ focus }) => ({
+      messages: [{
+        role: 'user',
+        content: {
+          type: 'text',
+          text: buildConflictReviewPrompt(projectRoot, { focus }),
+        },
+      }],
+    })
+  );
+
+  return server;
+}
+
+async function startMCPServer() {
+  const projectRoot = process.cwd();
+  const server = createMCPServer(projectRoot);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+}
+
+async function startMCPHttpServer(options = {}) {
+  const projectRoot = options.projectRoot || process.cwd();
+  const server = createMCPServer(projectRoot);
+
+  const host = options.host || '127.0.0.1';
+  const port = options.port ?? 3000;
+  const pathName = normalizeHttpPath(options.path || '/mcp');
+  const allowedOrigin = options.origin || '*';
+  const token = options.token || null;
+  const transports = new Map();
+
+  const httpServer = http.createServer(async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') {
+        applyCorsHeaders(res, allowedOrigin);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      if (normalizeHttpPath(req.url || '/') !== pathName) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32601, message: 'Not found.' },
+          id: null,
+        }));
+        return;
+      }
+
+      if (token && !requestHasValidToken(req, token)) {
+        applyCorsHeaders(res, allowedOrigin);
+        res.writeHead(401, {
+          'content-type': 'application/json',
+          'www-authenticate': 'Bearer realm="mindswap"',
+        });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Unauthorized.' },
+          id: null,
+        }));
+        return;
+      }
+
+      applyCorsHeaders(res, allowedOrigin);
+      const body = await readRequestBody(req);
+      let parsedBody;
+      if (body) {
+        try {
+          parsedBody = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32700, message: 'Invalid JSON body.' },
+            id: null,
+          }));
+          return;
+        }
+      }
+
+      const sessionId = req.headers['mcp-session-id'];
+      let transport = sessionId ? transports.get(String(sessionId)) : null;
+
+      if (!transport) {
+        const isInitialize = parsedBody && isInitializeRequest(parsedBody);
+        if (!sessionId && isInitialize) {
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true,
+            onsessioninitialized: newSessionId => {
+              transports.set(String(newSessionId), transport);
+            },
+            onsessionclosed: closedSessionId => {
+              transports.delete(String(closedSessionId));
+            },
+          });
+          await server.connect(transport);
+        } else if (!sessionId) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Bad Request: no session ID provided.' },
+            id: null,
+          }));
+          return;
+        } else {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Unknown session.' },
+            id: null,
+          }));
+          return;
+        }
+      }
+
+      await transport.handleRequest(req, res, parsedBody);
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: err.message || 'Internal server error' },
+          id: null,
+        }));
+      }
+    }
+  });
+
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, host, resolve);
+  });
+
+  const address = httpServer.address();
+  const actualPort = typeof address === 'object' && address ? address.port : port;
+  const localUrl = `http://${host}:${actualPort}${pathName}`;
+
+  return {
+    server: httpServer,
+    url: localUrl,
+    close: async () => {
+      for (const transport of transports.values()) {
+        await transport.close().catch(() => {});
+      }
+      await new Promise(resolve => httpServer.close(() => resolve()));
+    },
+  };
 }
 
 // ═══════════════════════════════════════════════════
@@ -464,6 +793,267 @@ function searchContext(projectRoot, query, type) {
   };
 }
 
+function renderContextText(projectRoot, focus = 'all', compact = false) {
+  const context = getContext(projectRoot, focus, compact);
+  return context?.content?.[0]?.text || '';
+}
+
+function readStableResource(projectRoot, kind) {
+  const state = readState(projectRoot);
+  const liveData = gatherLiveData(projectRoot);
+  const memory = readMemory(projectRoot);
+  const handoffPath = path.join(projectRoot, 'HANDOFF.md');
+  const handoffText = fs.existsSync(handoffPath) ? fs.readFileSync(handoffPath, 'utf-8') : renderContextText(projectRoot, 'all', false);
+
+  switch (kind) {
+    case 'context':
+      return buildTextResource('mindswap://context/current', renderContextText(projectRoot, 'all', false));
+    case 'state':
+      return buildJsonResource('mindswap://state/current', state);
+    case 'decisions':
+      return buildJsonResource('mindswap://decisions/recent', {
+        decisions: liveData.decisions.slice(-20),
+        conflicts: findAllConflicts(projectRoot),
+        dependency_conflicts: checkDepsVsDecisions(projectRoot),
+      });
+    case 'memory':
+      return buildJsonResource('mindswap://memory/current', memory);
+    case 'handoff':
+      return buildTextResource('mindswap://handoff/current', handoffText);
+    default:
+      throw new Error(`unknown resource kind: ${kind}`);
+  }
+}
+
+function buildTextResource(uri, text) {
+  return {
+    contents: [{
+      uri,
+      mimeType: 'text/plain',
+      text,
+    }],
+  };
+}
+
+function buildJsonResource(uri, value) {
+  return {
+    contents: [{
+      uri,
+      mimeType: 'application/json',
+      text: JSON.stringify(value, null, 2),
+    }],
+  };
+}
+
+function normalizeHttpPath(value) {
+  let pathname = String(value || '/').split('?')[0] || '/';
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
+  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.replace(/\/+$/, '');
+  return pathname || '/';
+}
+
+function applyCorsHeaders(res, origin) {
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, MCP-Session-Id, Last-Event-ID');
+  res.setHeader('Access-Control-Expose-Headers', 'MCP-Session-Id, MCP-Protocol-Version');
+}
+
+function requestHasValidToken(req, token) {
+  const auth = req.headers.authorization || req.headers.Authorization;
+  if (!auth) return false;
+  const [scheme, value] = String(auth).split(/\s+/, 2);
+  return /^bearer$/i.test(scheme) && value === token;
+}
+
+function isInitializeRequest(body) {
+  return Boolean(body && body.method === 'initialize');
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.method === 'GET' || req.method === 'DELETE' || req.method === 'HEAD') {
+      resolve('');
+      return;
+    }
+    const chunks = [];
+    req.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    req.on('error', reject);
+  });
+}
+
+function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}) {
+  const contextText = renderContextText(projectRoot, compact ? 'task' : 'all', Boolean(compact));
+  const lines = ['You are starting work in this repository.'];
+  if (tool) lines.push(`Target tool: ${tool}.`);
+  if (goal) lines.push(`Goal: ${goal}.`);
+  lines.push('');
+  lines.push('Use the context below, identify the next safe action, and call out blockers before suggesting implementation steps.');
+  if (contextText) {
+    lines.push('');
+    lines.push(contextText);
+  }
+  return lines.join('\n');
+}
+
+function buildResumeWorkPrompt(projectRoot, { compact } = {}) {
+  const briefing = buildResumeBriefing(readState(projectRoot), gatherResumeData(projectRoot), { compact });
+  const lines = [
+    'Resume this workstream from the current repo state.',
+    '',
+    briefing.summary,
+    '',
+    'State:',
+    ...briefing.stateLines.map(line => `- ${line}`),
+    '',
+    'Recommendation:',
+    `- ${briefing.recommendation.summary}`,
+    ...briefing.recommendation.next_steps.map(step => `- ${step}`),
+  ];
+
+  if (briefing.recommendation.command) {
+    lines.push(`- Next command: ${briefing.recommendation.command}`);
+  }
+
+  return lines.join('\n');
+}
+
+function buildHandoffPrompt(projectRoot, { audience } = {}) {
+  const contextText = renderContextText(projectRoot, 'all', false);
+  const lines = [
+    audience ? `Prepare a handoff for ${audience}.` : 'Prepare a handoff for the next agent.',
+    'Summarize what changed, what is still open, and what should happen next.',
+    'Include files, commands, blockers, and any unresolved decisions.',
+  ];
+  if (contextText) {
+    lines.push('');
+    lines.push(contextText);
+  }
+  return lines.join('\n');
+}
+
+function buildConflictReviewPrompt(projectRoot, { focus } = {}) {
+  const contextText = renderContextText(projectRoot, 'decisions', false);
+  const lines = [
+    focus ? `Review conflicts with a focus on ${focus}.` : 'Review the current decision and dependency conflicts.',
+    'Identify contradictions, explain the impact, and propose the smallest safe resolution.',
+  ];
+  if (contextText) {
+    lines.push('');
+    lines.push(contextText);
+  }
+  return lines.join('\n');
+}
+
+function manageMemory(projectRoot, opts = {}) {
+  const dataDir = getDataDir(projectRoot);
+  if (!fs.existsSync(dataDir)) {
+    return {
+      content: [{ type: 'text', text: 'mindswap not initialized. Run `npx mindswap init` first.' }],
+    };
+  }
+
+  const action = String(opts.action || '').toLowerCase();
+  const now = new Date().toISOString();
+
+  let result = null;
+  switch (action) {
+    case 'list': {
+      const items = listMemoryItems(projectRoot, {
+        type: opts.type,
+        status: opts.status,
+        author: opts.author,
+        source: opts.source,
+        created_after: opts.after,
+        created_before: opts.before,
+        includeArchived: opts.status === 'archived' || opts.hard === true,
+        limit: opts.limit || 20,
+      });
+      result = { action, count: items.length, items };
+      break;
+    }
+    case 'get': {
+      if (!opts.id) throw new Error('memory get requires an id');
+      const item = getMemoryItemById(projectRoot, opts.id);
+      result = item ? { action, item } : { action, item: null };
+      break;
+    }
+    case 'add': {
+      if (!opts.message) throw new Error('memory add requires a message');
+      const item = appendMemoryItem(projectRoot, {
+        type: opts.type || 'decision',
+        tag: opts.tag || 'general',
+        message: opts.message,
+        status: opts.status || undefined,
+        author: opts.author || null,
+        source: opts.source || 'cli',
+        created_at: now,
+      });
+      result = { action, item };
+      break;
+    }
+    case 'update': {
+      if (!opts.id) throw new Error('memory update requires an id');
+      const item = updateMemoryItem(projectRoot, opts.id, {
+        type: opts.type,
+        tag: opts.tag,
+        message: opts.message,
+        status: opts.status,
+        author: opts.author,
+        source: opts.source,
+        updated_at: now,
+      });
+      if (!item) throw new Error(`memory item not found: ${opts.id}`);
+      result = { action, item };
+      break;
+    }
+    case 'resolve': {
+      if (!opts.id) throw new Error('memory resolve requires an id');
+      const item = resolveMemoryItem(projectRoot, opts.id, {
+        message: opts.message,
+        tag: opts.tag,
+        author: opts.author,
+        source: opts.source,
+        resolved_at: now,
+      });
+      if (!item) throw new Error(`memory item not found: ${opts.id}`);
+      result = { action, item };
+      break;
+    }
+    case 'archive': {
+      if (!opts.id) throw new Error('memory archive requires an id');
+      const item = archiveMemoryItem(projectRoot, opts.id, {
+        message: opts.message,
+        tag: opts.tag,
+        author: opts.author,
+        source: opts.source,
+        archived_at: now,
+      });
+      if (!item) throw new Error(`memory item not found: ${opts.id}`);
+      result = { action, item };
+      break;
+    }
+    case 'delete': {
+      if (!opts.id) throw new Error('memory delete requires an id');
+      const item = deleteMemoryItem(projectRoot, opts.id, { hard: Boolean(opts.hard), archived_at: now });
+      if (!item) throw new Error(`memory item not found: ${opts.id}`);
+      result = { action, item, deleted: Boolean(opts.hard) };
+      break;
+    }
+    default:
+      throw new Error(`unknown memory action: ${opts.action}`);
+  }
+
+  const text = opts.json
+    ? JSON.stringify(result, null, 2)
+    : formatMemoryResult(result);
+
+  return {
+    content: [{ type: 'text', text }],
+  };
+}
+
 // ═══════════════════════════════════════════════════
 // Helper — gather live project data
 // ═══════════════════════════════════════════════════
@@ -585,4 +1175,43 @@ function formatMemorySection(projectRoot) {
   return lines;
 }
 
-module.exports = { startMCPServer, searchContext, tokenize, scoreText, formatMemorySection };
+function formatMemoryResult(result) {
+  if (!result) return 'No memory result.';
+  if (result.action === 'list') {
+    const lines = [`Memory items: ${result.count}`];
+    for (const item of result.items || []) {
+      lines.push(`- [${item.type}/${item.status}] ${item.id}: ${item.message}`);
+    }
+    return lines.join('\n');
+  }
+  if (result.item) {
+    const item = result.item;
+    return [
+      `${result.action.toUpperCase()} memory item`,
+      `- id: ${item.id}`,
+      `- type: ${item.type}`,
+      `- status: ${item.status}`,
+      `- tag: ${item.tag}`,
+      `- message: ${item.message}`,
+      item.source ? `- source: ${item.source}` : null,
+      item.author ? `- author: ${item.author}` : null,
+    ].filter(Boolean).join('\n');
+  }
+  return `${result.action} complete.`;
+}
+
+module.exports = {
+  createMCPServer,
+  startMCPServer,
+  startMCPHttpServer,
+  manageMemory,
+  searchContext,
+  tokenize,
+  scoreText,
+  formatMemorySection,
+  readStableResource,
+  buildStartWorkPrompt,
+  buildResumeWorkPrompt,
+  buildHandoffPrompt,
+  buildConflictReviewPrompt,
+};
