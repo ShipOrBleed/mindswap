@@ -224,6 +224,12 @@ The MCP surface stays small by design. [Research shows](https://dev.to/aws-heroe
 
 `server.json` is committed at the repo root and kept in sync with the published npm package metadata. Run `npx mindswap registry --write` to regenerate it from the current package metadata, or `npx mindswap registry --json` to inspect readiness before publishing with `mcp-publisher`.
 
+### MCP distribution
+
+The publishing workflow and target marketplaces are documented in:
+- [MCP distribution guide](docs/mcp-distribution.md)
+- [MCP marketplace matrix](docs/mcp-marketplaces.md)
+
 ## Security
 
 All generated context files are scanned for secrets before writing:
