@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 
 const { readState, getDataDir, getHistory } = require('./state');
-const { isGitRepo, getCurrentBranch, getAllChangedFiles, getRecentCommits } = require('./git');
 const { buildNarrative, buildCompactNarrative, calculateQualityScore } = require('./narrative');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { detectAITool } = require('./detect-ai');
@@ -31,6 +30,7 @@ const {
 const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 const { buildResumeBriefing, gatherResumeData } = require('./resume');
+const { createProjectSnapshot, readDecisionLines } = require('./project-snapshot');
 
 /**
  * Start the mindswap MCP server.
@@ -58,7 +58,8 @@ function createMCPServer(projectRoot) {
         .describe('Return token-optimized compact format (fewer tokens, same info)'),
     },
     async ({ focus, compact }) => {
-      return getContext(projectRoot, focus, compact);
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForContext(focus, compact));
+      return getContext(projectRoot, focus, compact, snapshot);
     }
   );
 
@@ -106,7 +107,8 @@ function createMCPServer(projectRoot) {
         .describe('Where to search: "all" searches everything, "decisions" only searches decision log, "history" only searches session history'),
     },
     async ({ query, type }) => {
-      return searchContext(projectRoot, query, type);
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForSearch(type));
+      return searchContext(projectRoot, query, type, snapshot);
     }
   );
 
@@ -217,15 +219,18 @@ function createMCPServer(projectRoot) {
         compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
       },
     },
-    async ({ goal, tool, compact }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildStartWorkPrompt(projectRoot, { goal, tool, compact: String(compact).toLowerCase() === 'true' }),
-        },
-      }],
-    })
+    async ({ goal, tool, compact }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('start', compact));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildStartWorkPrompt(projectRoot, { goal, tool, compact: String(compact).toLowerCase() === 'true' }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   server.registerPrompt(
@@ -237,15 +242,18 @@ function createMCPServer(projectRoot) {
         compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
       },
     },
-    async ({ compact }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildResumeWorkPrompt(projectRoot, { compact: String(compact).toLowerCase() === 'true' }),
-        },
-      }],
-    })
+    async ({ compact }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('resume', compact));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildResumeWorkPrompt(projectRoot, { compact: String(compact).toLowerCase() === 'true' }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   server.registerPrompt(
@@ -257,15 +265,18 @@ function createMCPServer(projectRoot) {
         audience: z.string().optional().describe('Optional recipient or tool name'),
       },
     },
-    async ({ audience }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildHandoffPrompt(projectRoot, { audience }),
-        },
-      }],
-    })
+    async ({ audience }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('handoff'));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildHandoffPrompt(projectRoot, { audience }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   server.registerPrompt(
@@ -277,15 +288,18 @@ function createMCPServer(projectRoot) {
         focus: z.string().optional().describe('Optional area to focus on, such as auth or database'),
       },
     },
-    async ({ focus }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildConflictReviewPrompt(projectRoot, { focus }),
-        },
-      }],
-    })
+    async ({ focus }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('conflicts'));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildConflictReviewPrompt(projectRoot, { focus }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   return server;
@@ -433,7 +447,7 @@ async function startMCPHttpServer(options = {}) {
 // Tool implementations
 // ═══════════════════════════════════════════════════
 
-function getContext(projectRoot, focus, compact) {
+function getContext(projectRoot, focus, compact, snapshot = null) {
   const dataDir = getDataDir(projectRoot);
   if (!fs.existsSync(dataDir)) {
     return {
@@ -444,8 +458,9 @@ function getContext(projectRoot, focus, compact) {
     };
   }
 
-  const state = readState(projectRoot);
-  const liveData = gatherLiveData(projectRoot);
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, getSnapshotOptionsForContext(focus, compact));
+  const state = currentSnapshot.state;
+  const liveData = snapshotToLiveData(currentSnapshot, getLiveDataOptionsForContext(focus, compact));
 
   if (compact) {
     const compactText = buildCompactNarrative(state, liveData);
@@ -483,7 +498,7 @@ function getContext(projectRoot, focus, compact) {
       sections.push(`## Decisions\n${stripped.map(d => `- ${d}`).join('\n')}`);
     }
 
-    const memoryLines = formatMemorySection(projectRoot);
+    const memoryLines = formatMemorySection(currentSnapshot);
     if (memoryLines.length > 0) {
       sections.push(`## Structured Memory\n${memoryLines.join('\n')}`);
     }
@@ -665,7 +680,7 @@ function saveContext(projectRoot, { summary, decisions, assumptions, questions, 
   };
 }
 
-function searchContext(projectRoot, query, type) {
+function searchContext(projectRoot, query, type, snapshot = null) {
   const dataDir = getDataDir(projectRoot);
   if (!fs.existsSync(dataDir)) {
     return {
@@ -673,78 +688,75 @@ function searchContext(projectRoot, query, type) {
     };
   }
 
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 50, recentCommitLimit: 5 });
   const queryTokens = tokenize(query);
   const results = [];
   const seen = new Set();
 
   // Search decisions
   if (type === 'all' || type === 'decisions') {
-    const decisionsPath = path.join(dataDir, 'decisions.log');
-    if (fs.existsSync(decisionsPath)) {
-      const lines = fs.readFileSync(decisionsPath, 'utf-8')
-        .split('\n')
-        .filter(l => l.startsWith('['));
-
-      for (const line of lines) {
-        addScoredResult(results, seen, {
-          type: 'decision',
-          content: line,
-          source: 'decisions.log',
-        }, queryTokens, 1.2);
-      }
+    for (const line of currentSnapshot.decisions) {
+      addScoredResult(results, seen, {
+        type: 'decision',
+        content: createSearchSnippet(stripDecisionPrefix(line), queryTokens),
+        source: 'decisions.log',
+        key: line,
+      }, queryTokens, 1.4, line, 4);
     }
   }
 
   // Search history
   if (type === 'all' || type === 'history') {
-    const history = getHistory(projectRoot, 50);
-    for (const entry of history) {
+    for (const entry of currentSnapshot.history) {
       addScoredResult(results, seen, {
         type: 'history',
-        content: `[${entry.timestamp}] ${entry.message}${entry.ai_tool ? ` (${entry.ai_tool})` : ''}`,
+        content: createSearchSnippet(entry.message, queryTokens),
         source: 'history',
-      }, queryTokens, 1.0, JSON.stringify(entry));
+        key: JSON.stringify(entry),
+      }, queryTokens, 1.1, JSON.stringify(entry), 2);
     }
   }
 
   // Search current state
   if (type === 'all') {
-    const memoryItems = getRecentMemoryItems(projectRoot, 50);
-    for (const item of memoryItems) {
+    for (const item of listMemoryItemsFromSnapshot(currentSnapshot, { limit: 50 })) {
       addScoredResult(results, seen, {
         type: `memory:${item.type}`,
-        content: `${item.type}: ${item.message} [${item.status}]`,
+        content: createSearchSnippet(`${item.type}: ${item.message}`, queryTokens),
         source: 'memory',
-      }, queryTokens, item.status === 'open' ? 1.15 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`);
+        key: item.id || `${item.type}:${item.tag}:${item.message}`,
+      }, queryTokens, item.status === 'open' ? 1.4 : 1.0, `${item.type} ${item.tag} ${item.status} ${item.message}`, item.status === 'open' ? 3 : 1);
     }
 
-    const state = readState(projectRoot);
+    const state = currentSnapshot.state;
     if (state.current_task?.description) {
       addScoredResult(results, seen, {
         type: 'task',
-        content: `Current task: ${state.current_task.description} [${state.current_task.status}]`,
+        content: createSearchSnippet(`Current task: ${state.current_task.description}`, queryTokens),
         source: 'state.current_task',
-      }, queryTokens, 1.35, state.current_task.description);
+        key: state.current_task.description,
+      }, queryTokens, 1.8, state.current_task.description, 5);
     }
     if (state.project?.tech_stack?.length) {
       addScoredResult(results, seen, {
         type: 'project',
-        content: `Tech stack includes: ${state.project.tech_stack.join(', ')}`,
+        content: createSearchSnippet(`Tech stack: ${state.project.tech_stack.join(', ')}`, queryTokens),
         source: 'state.project',
-      }, queryTokens, 0.9, state.project.tech_stack.join(' '));
+        key: state.project.tech_stack.join(' '),
+      }, queryTokens, 0.8, state.project.tech_stack.join(' '), 1);
     }
     if (state.current_task?.blocker) {
       addScoredResult(results, seen, {
         type: 'blocker',
-        content: `Current blocker: ${state.current_task.blocker}`,
+        content: createSearchSnippet(`Current blocker: ${state.current_task.blocker}`, queryTokens),
         source: 'state.current_task',
-      }, queryTokens, 1.15, state.current_task.blocker);
+        key: state.current_task.blocker,
+      }, queryTokens, 1.7, state.current_task.blocker, 4);
     }
   }
 
   if (type === 'all') {
-    const nativeSessions = parseNativeSessions(projectRoot) || [];
-    for (const session of nativeSessions) {
+    for (const session of currentSnapshot.nativeSessions) {
       const combined = [
         session.summary || '',
         session.blockers?.join(' '),
@@ -755,20 +767,21 @@ function searchContext(projectRoot, query, type) {
       ].filter(Boolean).join(' ');
       addScoredResult(results, seen, {
         type: 'native-session',
-        content: `${session.tool}${session.timestamp ? ` @ ${session.timestamp}` : ''}: ${session.summary || 'session context'}`,
+        content: createSearchSnippet(`${session.tool}: ${session.summary || 'session context'}`, queryTokens),
         source: session.tool,
-      }, queryTokens, 0.9, combined || session.rawText || session.tool);
+        key: `${session.tool}:${session.timestamp || ''}:${session.summary || session.rawText || ''}`,
+      }, queryTokens, 0.85, combined || session.rawText || session.tool, 0);
     }
 
-    const imported = importSessions(projectRoot) || [];
-    for (const session of imported) {
+    for (const session of currentSnapshot.importedSessions) {
       const sourceLabel = session.tool || 'session';
       const combined = [...(session.decisions || []), ...(session.context || [])].join(' ');
       addScoredResult(results, seen, {
         type: 'imported',
-        content: `${sourceLabel}: ${(session.context || session.decisions || []).slice(0, 3).join(' | ')}`,
+        content: createSearchSnippet(`${sourceLabel}: ${(session.context || session.decisions || []).slice(0, 3).join(' | ')}`, queryTokens),
         source: sourceLabel,
-      }, queryTokens, 0.8, combined);
+        key: `${sourceLabel}:${(session.context || session.decisions || []).join(' | ')}`,
+      }, queryTokens, 0.75, combined, 0);
     }
   }
 
@@ -782,7 +795,7 @@ function searchContext(projectRoot, query, type) {
   }
 
   const topResults = results
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => (b.rank - a.rank) || (b.score - a.score))
     .slice(0, 15);
   const formatted = topResults.map(r => `[${r.type}] (${Math.round(r.score)}) ${r.content}`).join('\n');
   return {
@@ -793,21 +806,22 @@ function searchContext(projectRoot, query, type) {
   };
 }
 
-function renderContextText(projectRoot, focus = 'all', compact = false) {
-  const context = getContext(projectRoot, focus, compact);
+function renderContextText(projectRoot, focus = 'all', compact = false, snapshot = null) {
+  const context = getContext(projectRoot, focus, compact, snapshot);
   return context?.content?.[0]?.text || '';
 }
 
-function readStableResource(projectRoot, kind) {
-  const state = readState(projectRoot);
-  const liveData = gatherLiveData(projectRoot);
-  const memory = readMemory(projectRoot);
+function readStableResource(projectRoot, kind, snapshot = null) {
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, getSnapshotOptionsForResource(kind));
+  const state = currentSnapshot.state;
+  const liveData = snapshotToLiveData(currentSnapshot, getLiveDataOptionsForResource(kind));
+  const memory = currentSnapshot.memory;
   const handoffPath = path.join(projectRoot, 'HANDOFF.md');
-  const handoffText = fs.existsSync(handoffPath) ? fs.readFileSync(handoffPath, 'utf-8') : renderContextText(projectRoot, 'all', false);
+  const handoffText = fs.existsSync(handoffPath) ? fs.readFileSync(handoffPath, 'utf-8') : renderContextText(projectRoot, 'all', false, currentSnapshot);
 
   switch (kind) {
     case 'context':
-      return buildTextResource('mindswap://context/current', renderContextText(projectRoot, 'all', false));
+      return buildTextResource('mindswap://context/current', renderContextText(projectRoot, 'all', false, currentSnapshot));
     case 'state':
       return buildJsonResource('mindswap://state/current', state);
     case 'decisions':
@@ -883,8 +897,8 @@ function readRequestBody(req) {
   });
 }
 
-function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}) {
-  const contextText = renderContextText(projectRoot, compact ? 'task' : 'all', Boolean(compact));
+function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}, snapshot = null) {
+  const contextText = renderContextText(projectRoot, compact ? 'task' : 'all', Boolean(compact), snapshot);
   const lines = ['You are starting work in this repository.'];
   if (tool) lines.push(`Target tool: ${tool}.`);
   if (goal) lines.push(`Goal: ${goal}.`);
@@ -897,8 +911,9 @@ function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}) {
   return lines.join('\n');
 }
 
-function buildResumeWorkPrompt(projectRoot, { compact } = {}) {
-  const briefing = buildResumeBriefing(readState(projectRoot), gatherResumeData(projectRoot), { compact });
+function buildResumeWorkPrompt(projectRoot, { compact } = {}, snapshot = null) {
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('resume', compact));
+  const briefing = buildResumeBriefing(currentSnapshot.state, gatherResumeData(projectRoot, currentSnapshot), { compact });
   const lines = [
     'Resume this workstream from the current repo state.',
     '',
@@ -919,8 +934,8 @@ function buildResumeWorkPrompt(projectRoot, { compact } = {}) {
   return lines.join('\n');
 }
 
-function buildHandoffPrompt(projectRoot, { audience } = {}) {
-  const contextText = renderContextText(projectRoot, 'all', false);
+function buildHandoffPrompt(projectRoot, { audience } = {}, snapshot = null) {
+  const contextText = renderContextText(projectRoot, 'all', false, snapshot);
   const lines = [
     audience ? `Prepare a handoff for ${audience}.` : 'Prepare a handoff for the next agent.',
     'Summarize what changed, what is still open, and what should happen next.',
@@ -933,8 +948,8 @@ function buildHandoffPrompt(projectRoot, { audience } = {}) {
   return lines.join('\n');
 }
 
-function buildConflictReviewPrompt(projectRoot, { focus } = {}) {
-  const contextText = renderContextText(projectRoot, 'decisions', false);
+function buildConflictReviewPrompt(projectRoot, { focus } = {}, snapshot = null) {
+  const contextText = renderContextText(projectRoot, 'decisions', false, snapshot);
   const lines = [
     focus ? `Review conflicts with a focus on ${focus}.` : 'Review the current decision and dependency conflicts.',
     'Identify contradictions, explain the impact, and propose the smallest safe resolution.',
@@ -1059,36 +1074,21 @@ function manageMemory(projectRoot, opts = {}) {
 // ═══════════════════════════════════════════════════
 
 function gatherLiveData(projectRoot) {
-  const data = {
-    branch: null,
-    changedFiles: [],
-    recentCommits: [],
-    decisions: [],
-    history: [],
-    nativeSessions: [],
+  return snapshotToLiveData(createProjectSnapshot(projectRoot, getSnapshotOptionsForContext('all', false)), getLiveDataOptionsForContext('all', false));
+}
+
+function snapshotToLiveData(snapshot, opts = {}) {
+  return {
+    branch: snapshot.branch,
+    changedFiles: snapshot.changedFiles,
+    recentCommits: snapshot.recentCommits,
+    decisions: snapshot.decisions,
+    history: snapshot.history,
+    nativeSessions: opts.includeNativeSessions === false ? [] : snapshot.nativeSessions,
+    structuredMemory: snapshot.memory?.items || [],
+    importedSessions: opts.includeImportedSessions === false ? [] : snapshot.importedSessions,
+    guardrails: opts.includeGuardrails === false ? null : snapshot.guardrails,
   };
-
-  if (isGitRepo(projectRoot)) {
-    data.branch = getCurrentBranch(projectRoot);
-    data.changedFiles = getAllChangedFiles(projectRoot);
-    data.recentCommits = getRecentCommits(projectRoot, 5);
-  }
-
-  const decisionsPath = path.join(projectRoot, '.mindswap', 'decisions.log');
-  if (fs.existsSync(decisionsPath)) {
-    data.decisions = fs.readFileSync(decisionsPath, 'utf-8')
-      .split('\n')
-      .filter(l => l.startsWith('['));
-  }
-
-  data.structuredMemory = getRecentMemoryItems(projectRoot, 20);
-  data.history = getHistory(projectRoot, 5);
-  data.nativeSessions = parseNativeSessions(projectRoot);
-  data.guardrails = analyzeGuardrails(projectRoot, {
-    changedFiles: data.changedFiles,
-    diffContent: '',
-  });
-  return data;
 }
 
 function tokenize(query) {
@@ -1108,14 +1108,14 @@ function tokenize(query) {
   return [...expanded];
 }
 
-function addScoredResult(results, seen, entry, queryTokens, weight, haystackText = '') {
+function addScoredResult(results, seen, entry, queryTokens, weight, haystackText = '', rank = 0) {
   const text = haystackText || entry.content || '';
   const score = scoreText(text, queryTokens, weight);
   if (score <= 0) return;
-  const key = `${entry.type}::${entry.content}`;
+  const key = `${entry.type}::${entry.key || entry.content}`;
   if (seen.has(key)) return;
   seen.add(key);
-  results.push({ ...entry, score });
+  results.push({ ...entry, score, rank: entry.rank ?? rank ?? 0 });
 }
 
 function scoreText(text, queryTokens, weight = 1) {
@@ -1145,6 +1145,196 @@ function findLooseMatch(token, haystack) {
   return variants.some(v => v !== token && v.length >= 3 && haystack.includes(v));
 }
 
+function stripDecisionPrefix(line) {
+  return String(line || '').replace(/^\[.*?\]\s*\[.*?\]\s*/, '').trim();
+}
+
+function createSearchSnippet(text, queryTokens, maxLength = 140) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!clean) return '';
+  if (!queryTokens || queryTokens.length === 0) return clean.slice(0, maxLength);
+
+  const lower = clean.toLowerCase();
+  let index = -1;
+  for (const token of queryTokens) {
+    const candidate = lower.indexOf(token);
+    if (candidate >= 0 && (index < 0 || candidate < index)) {
+      index = candidate;
+    }
+  }
+
+  if (index < 0) {
+    return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}…` : clean;
+  }
+
+  const start = Math.max(0, index - 40);
+  const end = Math.min(clean.length, index + 100);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < clean.length ? '…' : '';
+  const snippet = clean.slice(start, end);
+  return `${prefix}${snippet}${suffix}`;
+}
+
+function getSnapshotOptionsForContext(focus, compact) {
+  const base = { historyLimit: 20, recentCommitLimit: 5 };
+  if (compact || focus === 'task') {
+    return {
+      ...base,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'recent') {
+    return {
+      ...base,
+      includeNativeSessions: true,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'decisions') {
+    return {
+      ...base,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: true,
+    };
+  }
+  return {
+    ...base,
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: true,
+  };
+}
+
+function getLiveDataOptionsForContext(focus, compact) {
+  if (compact || focus === 'task') {
+    return {
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'recent') {
+    return {
+      includeNativeSessions: true,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'decisions') {
+    return {
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: true,
+    };
+  }
+  return {
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: true,
+  };
+}
+
+function getSnapshotOptionsForSearch(type) {
+  const base = { historyLimit: 50, recentCommitLimit: 5 };
+  if (type === 'decisions' || type === 'history') {
+    return {
+      ...base,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  return {
+    ...base,
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: false,
+  };
+}
+
+function getSnapshotOptionsForResource(kind) {
+  const base = { historyLimit: 20, recentCommitLimit: 5 };
+  switch (kind) {
+    case 'context':
+    case 'handoff':
+      return {
+        ...base,
+        includeNativeSessions: true,
+        includeImportedSessions: true,
+        includeGuardrails: true,
+      };
+    case 'decisions':
+      return {
+        ...base,
+        includeNativeSessions: false,
+        includeImportedSessions: false,
+        includeGuardrails: false,
+      };
+    case 'state':
+    case 'memory':
+    default:
+      return {
+        ...base,
+        includeNativeSessions: false,
+        includeImportedSessions: false,
+        includeGuardrails: false,
+      };
+  }
+}
+
+function getLiveDataOptionsForResource(kind) {
+  switch (kind) {
+    case 'context':
+    case 'handoff':
+      return {
+        includeNativeSessions: true,
+        includeImportedSessions: true,
+        includeGuardrails: true,
+      };
+    default:
+      return {
+        includeNativeSessions: false,
+        includeImportedSessions: false,
+        includeGuardrails: false,
+      };
+  }
+}
+
+function getSnapshotOptionsForPrompt(kind, compact) {
+  if (kind === 'conflicts') {
+    return {
+      historyLimit: 20,
+      recentCommitLimit: 5,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: true,
+    };
+  }
+  if (kind === 'resume') {
+    return {
+      historyLimit: 20,
+      recentCommitLimit: 5,
+      includeNativeSessions: true,
+      includeImportedSessions: true,
+      includeGuardrails: true,
+    };
+  }
+  if (kind === 'start') {
+    return getSnapshotOptionsForContext('all', String(compact).toLowerCase() === 'true');
+  }
+  return {
+    historyLimit: 20,
+    recentCommitLimit: 5,
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: true,
+  };
+}
+
 const QUERY_ALIASES = {
   auth: ['authentication', 'login', 'session', 'jwt', 'token'],
   authentication: ['auth', 'login', 'session', 'jwt', 'token'],
@@ -1164,15 +1354,49 @@ const QUERY_ALIASES = {
   ui: ['frontend', 'component', 'page', 'view'],
 };
 
-function formatMemorySection(projectRoot) {
+function formatMemorySection(snapshot) {
   const lines = [];
-  for (const item of getOpenMemoryItems(projectRoot, 'blocker', 5)) lines.push(`- BLOCKER: ${item.message}`);
-  for (const item of getOpenMemoryItems(projectRoot, 'question', 5)) lines.push(`- QUESTION: ${item.message}`);
-  for (const item of getOpenMemoryItems(projectRoot, 'assumption', 5)) lines.push(`- ASSUMPTION: ${item.message}`);
-  for (const item of getRecentMemoryItems(projectRoot, 10).filter(item => item.type === 'resolution').slice(-5)) {
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'blocker', status: 'open', limit: 5 })) lines.push(`- BLOCKER: ${item.message}`);
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'question', status: 'open', limit: 5 })) lines.push(`- QUESTION: ${item.message}`);
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'assumption', status: 'open', limit: 5 })) lines.push(`- ASSUMPTION: ${item.message}`);
+  for (const item of getSnapshotMemoryItems(snapshot, { type: 'resolution', limit: 10 }).slice(-5)) {
     lines.push(`- RESOLUTION: ${item.message}`);
   }
   return lines;
+}
+
+function getSnapshotMemoryItems(snapshot, opts = {}) {
+  const items = Array.isArray(snapshot.memory?.items) ? snapshot.memory.items.slice() : [];
+  let filtered = items;
+  if (opts.type) {
+    const types = Array.isArray(opts.type) ? opts.type : [opts.type];
+    filtered = filtered.filter(item => types.includes(item.type));
+  }
+  if (opts.status) {
+    filtered = filtered.filter(item => item.status === opts.status);
+  }
+  if (opts.source) {
+    const sources = Array.isArray(opts.source) ? opts.source : [opts.source];
+    filtered = filtered.filter(item => sources.includes(item.source));
+  }
+  if (opts.author) {
+    const authors = Array.isArray(opts.author) ? opts.author : [opts.author];
+    filtered = filtered.filter(item => authors.includes(item.author));
+  }
+  if (opts.limit) {
+    const limit = Number(opts.limit);
+    if (Number.isFinite(limit) && limit > 0) {
+      filtered = filtered.slice(-limit);
+    }
+  }
+  return filtered;
+}
+
+function listMemoryItemsFromSnapshot(snapshot, opts = {}) {
+  return getSnapshotMemoryItems(snapshot, {
+    ...opts,
+    includeArchived: opts.includeArchived || opts.status === 'archived',
+  });
 }
 
 function formatMemoryResult(result) {

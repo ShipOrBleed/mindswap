@@ -85,6 +85,19 @@ exports.test_searchContext_semantic_ranking_finds_imported_auth_context = () => 
   }
 };
 
+exports.test_searchContext_prioritizes_task_and_blocker_results = () => {
+  setup();
+  try {
+    const result = searchContext(dir, 'login', 'all');
+    const lines = result.content[0].text.split('\n').filter(Boolean);
+    const firstHit = lines.find(line => line.startsWith('['));
+    assert.ok(firstHit.includes('[task]') || firstHit.includes('[blocker]'), 'should prioritize task or blocker results');
+    assert.ok(lines.some(line => line.includes('Current task: implement login flow') || line.includes('Current blocker: waiting on token refresh behavior')));
+  } finally {
+    teardown();
+  }
+};
+
 exports.test_manageMemory_add_list_update_resolve_archive_delete = () => {
   setup();
   try {

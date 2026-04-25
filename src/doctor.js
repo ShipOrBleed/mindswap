@@ -10,6 +10,7 @@ const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { calculateQualityScore } = require('./narrative');
 const { analyzeGuardrails } = require('./guardrails');
 const { getSyncHubPath, readHubSnapshot, buildSyncReport, buildLocalSnapshot } = require('./sync');
+const { createProjectSnapshot } = require('./project-snapshot');
 
 async function doctor(projectRoot, opts = {}) {
   const report = analyzeProjectHealth(projectRoot);
@@ -30,13 +31,6 @@ async function doctor(projectRoot, opts = {}) {
 function analyzeProjectHealth(projectRoot) {
   const dataDir = getDataDir(projectRoot);
   const checks = [];
-  const live = {
-    branch: null,
-    changedFiles: [],
-    recentCommits: [],
-    decisions: [],
-    history: [],
-  };
 
   if (!fs.existsSync(dataDir)) {
     addCheck(checks, 'issue', 'mindswap is not initialized', 'Run `npx mindswap init` in this project.');
@@ -44,6 +38,14 @@ function analyzeProjectHealth(projectRoot) {
   }
 
   addCheck(checks, 'ok', 'mindswap data directory exists');
+  const snapshot = createProjectSnapshot(projectRoot, { historyLimit: 10, recentCommitLimit: 5 });
+  const live = {
+    branch: snapshot.branch,
+    changedFiles: snapshot.changedFiles,
+    recentCommits: snapshot.recentCommits,
+    decisions: snapshot.decisions,
+    history: snapshot.history,
+  };
 
   const statePath = path.join(dataDir, 'state.json');
   const configPath = path.join(dataDir, 'config.json');
@@ -86,7 +88,7 @@ function analyzeProjectHealth(projectRoot) {
 
   let state = null;
   try {
-    state = readState(projectRoot);
+    state = snapshot.state || readState(projectRoot);
   } catch (err) {
     addCheck(checks, 'issue', 'state.json could not be read', err.message);
   }

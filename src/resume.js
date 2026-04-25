@@ -1,12 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const { readState, getDataDir, getHistory } = require('./state');
-const { isGitRepo, getCurrentBranch, getAllChangedFiles, getRecentCommits } = require('./git');
+const { readState, getDataDir } = require('./state');
 const { findAllConflicts, checkDepsVsDecisions } = require('./conflicts');
 const { calculateQualityScore } = require('./narrative');
-const { getOpenMemoryItems, getRecentMemoryItems } = require('./memory');
-const { parseNativeSessions } = require('./session-parser');
+const { createProjectSnapshot } = require('./project-snapshot');
 
 async function resume(projectRoot, opts = {}) {
   const dataDir = getDataDir(projectRoot);
@@ -15,8 +13,9 @@ async function resume(projectRoot, opts = {}) {
     return;
   }
 
-  const state = readState(projectRoot);
-  const live = gatherResumeData(projectRoot);
+  const snapshot = createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const state = snapshot.state;
+  const live = gatherResumeData(projectRoot, snapshot);
   const briefing = buildResumeBriefing(state, live, opts);
 
   if (opts.json) {
@@ -43,16 +42,17 @@ async function resume(projectRoot, opts = {}) {
   console.log();
 }
 
-function gatherResumeData(projectRoot) {
-  const branch = isGitRepo(projectRoot) ? getCurrentBranch(projectRoot) : null;
-  const changedFiles = isGitRepo(projectRoot) ? getAllChangedFiles(projectRoot) : [];
-  const recentCommits = isGitRepo(projectRoot) ? getRecentCommits(projectRoot, 5) : [];
-  const history = getHistory(projectRoot, 10);
-  const nativeSessions = parseNativeSessions(projectRoot);
-  const decisions = readDecisions(projectRoot);
-  const structuredMemory = getRecentMemoryItems(projectRoot, 20);
-  const blockers = getOpenMemoryItems(projectRoot, 'blocker', 5);
-  const questions = getOpenMemoryItems(projectRoot, 'question', 5);
+function gatherResumeData(projectRoot, snapshot = null) {
+  const liveSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const branch = liveSnapshot.branch;
+  const changedFiles = liveSnapshot.changedFiles;
+  const recentCommits = liveSnapshot.recentCommits;
+  const history = liveSnapshot.history || [];
+  const nativeSessions = liveSnapshot.nativeSessions || [];
+  const decisions = liveSnapshot.decisions || readDecisions(projectRoot);
+  const structuredMemory = Array.isArray(liveSnapshot.memory?.items) ? liveSnapshot.memory.items.slice(-20) : [];
+  const blockers = structuredMemory.filter(item => item.type === 'blocker' && item.status === 'open').slice(-5);
+  const questions = structuredMemory.filter(item => item.type === 'question' && item.status === 'open').slice(-5);
   const conflicts = findAllConflicts(projectRoot);
   const depConflicts = checkDepsVsDecisions(projectRoot);
 

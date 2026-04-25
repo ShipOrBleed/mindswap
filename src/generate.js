@@ -1,15 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
-const { readState, getDataDir, getHistory } = require('./state');
-const { isGitRepo, getCurrentBranch, getAllChangedFiles, getDiffSummary, getDiffContent, getRecentCommits } = require('./git');
+const { readState, getDataDir } = require('./state');
+const { isGitRepo, getDiffSummary, getDiffContent } = require('./git');
 const { buildNarrative, buildCompactNarrative, summarizeFiles } = require('./narrative');
 const { scanAndRedact, printSecretWarnings } = require('./secrets');
 const { detectMonorepo, getMonorepoSection, detectChangedPackages } = require('./monorepo');
 const { teamSection } = require('./team');
-const { getOpenMemoryItems, getMemoryItems } = require('./memory');
-const { parseNativeSessions, getSessionSummary } = require('./session-parser');
-const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
+const { getSessionSummary } = require('./session-parser');
+const { buildGuardrailSection } = require('./guardrails');
+const { createProjectSnapshot } = require('./project-snapshot');
 
 const SECTION_START = '<!-- mindswap:start -->';
 const SECTION_END = '<!-- mindswap:end -->';
@@ -163,29 +163,41 @@ function safeWriteContextFile(filePath, content) {
 }
 
 function gatherLiveData(projectRoot) {
-  const data = { branch: null, changedFiles: [], diffSummary: '', recentCommits: [], diff: '' };
+  const snapshot = createProjectSnapshot(projectRoot, {
+    historyLimit: 5,
+    recentCommitLimit: 5,
+  });
+
+  const data = {
+    branch: snapshot.branch,
+    changedFiles: snapshot.changedFiles,
+    diffSummary: '',
+    recentCommits: snapshot.recentCommits,
+    diff: '',
+    decisions: snapshot.decisions.slice(-10),
+    structuredMemory: getStructuredMemory(snapshot),
+    history: snapshot.history.slice(-5),
+  };
+
   if (isGitRepo(projectRoot)) {
-    data.branch = getCurrentBranch(projectRoot);
-    data.changedFiles = getAllChangedFiles(projectRoot);
     data.diffSummary = getDiffSummary(projectRoot);
-    data.recentCommits = getRecentCommits(projectRoot, 5);
     data.diff = getDiffContent(projectRoot, 150);
   }
-  const decisionsPath = path.join(projectRoot, '.mindswap', 'decisions.log');
-  data.decisions = [];
-  if (fs.existsSync(decisionsPath)) {
-    data.decisions = fs.readFileSync(decisionsPath, 'utf-8')
-      .split('\n')
-      .filter(l => l.startsWith('['))
-      .slice(-10);
-  }
-  data.structuredMemory = getStructuredMemory(projectRoot);
-  data.history = getHistory(projectRoot, 5);
-  data.nativeSessions = parseNativeSessions(projectRoot);
-  data.guardrails = analyzeGuardrails(projectRoot, {
-    changedFiles: data.changedFiles,
-    diffContent: data.diff,
+
+  Object.defineProperty(data, 'nativeSessions', {
+    enumerable: true,
+    get() {
+      return snapshot.nativeSessions;
+    },
   });
+
+  Object.defineProperty(data, 'guardrails', {
+    enumerable: true,
+    get() {
+      return snapshot.guardrails;
+    },
+  });
+
   return data;
 }
 
@@ -464,12 +476,13 @@ ${live.changedFiles.slice(0, 15).map(f => `${f.status}: ${f.file}`).join('\n') |
 `;
 }
 
-function getStructuredMemory(projectRoot) {
+function getStructuredMemory(snapshot) {
+  const items = Array.isArray(snapshot?.memory?.items) ? snapshot.memory.items : [];
   return {
-    blockers: getOpenMemoryItems(projectRoot, 'blocker', 5),
-    assumptions: getOpenMemoryItems(projectRoot, 'assumption', 5),
-    questions: getOpenMemoryItems(projectRoot, 'question', 5),
-    resolutions: getMemoryItems(projectRoot, { type: 'resolution', limit: 5 }),
+    blockers: items.filter(item => item.type === 'blocker' && item.status === 'open').slice(-5),
+    assumptions: items.filter(item => item.type === 'assumption' && item.status === 'open').slice(-5),
+    questions: items.filter(item => item.type === 'question' && item.status === 'open').slice(-5),
+    resolutions: items.filter(item => item.type === 'resolution').slice(-5),
   };
 }
 
