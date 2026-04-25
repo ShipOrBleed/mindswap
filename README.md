@@ -73,7 +73,7 @@ npx mindswap done     # when feature is complete
 
 Everything else is automatic — git hooks track commits, dependencies are auto-logged, branch state is auto-managed.
 
-## 16 commands
+## 17 commands
 
 | Command | Alias | What it does |
 |---------|-------|-------------|
@@ -182,10 +182,11 @@ Next.js, Remix, Astro, SolidJS, Angular, NestJS, Express, Fastify, Hono, Django,
 
 ## MCP Server
 
-AI tools can query mindswap natively via [Model Context Protocol](https://modelcontextprotocol.io/) instead of reading static files. 4 tools + workflow prompts, stdio transport.
+AI tools can query mindswap natively via [Model Context Protocol](https://modelcontextprotocol.io/) instead of reading static files. 4 tools + workflow prompts, plus a remote Streamable HTTP transport for hosted and browser-based clients.
 
 ```bash
 npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
+npx mindswap mcp-http      # start a remote MCP endpoint on http://127.0.0.1:3000/mcp
 ```
 
 | MCP Tool | When AI calls it | What it returns |
@@ -205,6 +206,8 @@ npx mindswap mcp-install   # auto-configures Claude Code, Cursor, VS Code
 | `mindswap_review_conflicts` | Before changing risky areas | A conflict-review prompt focused on decision and dependency drift |
 
 The MCP surface stays small by design. [Research shows](https://dev.to/aws-heroes/mcp-tool-design-why-your-ai-agent-is-failing-and-how-to-fix-it-40fc) AI accuracy drops from 82% to 73% past 20 tools. We chose quality over quantity.
+
+`mcp-http` supports an optional bearer token, so browser clients can connect to a hosted endpoint without exposing the full local CLI surface.
 
 ### MCP resources
 

@@ -1,5 +1,8 @@
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+const http = require('http');
+const { randomUUID } = require('crypto');
 const { z } = require('zod');
 const fs = require('fs');
 const path = require('path');
@@ -33,9 +36,7 @@ const { buildResumeBriefing, gatherResumeData } = require('./resume');
  * Start the mindswap MCP server.
  * Core tools for context, saving, search, and structured memory.
  */
-async function startMCPServer() {
-  const projectRoot = process.cwd();
-
+function createMCPServer(projectRoot) {
   const server = new McpServer({
     name: 'mindswap',
     version: '2.2.0',
@@ -213,7 +214,7 @@ async function startMCPServer() {
       argsSchema: {
         goal: z.string().optional().describe('Optional goal or feature to focus on'),
         tool: z.string().optional().describe('Optional AI tool name for wording adjustments'),
-        compact: z.boolean().default(false).describe('Use a shorter prompt body'),
+        compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
       },
     },
     async ({ goal, tool, compact }) => ({
@@ -221,7 +222,7 @@ async function startMCPServer() {
         role: 'user',
         content: {
           type: 'text',
-          text: buildStartWorkPrompt(projectRoot, { goal, tool, compact }),
+          text: buildStartWorkPrompt(projectRoot, { goal, tool, compact: String(compact).toLowerCase() === 'true' }),
         },
       }],
     })
@@ -233,7 +234,7 @@ async function startMCPServer() {
       title: 'Resume Work',
       description: 'Prepare a restart prompt that emphasizes blockers and the next best action.',
       argsSchema: {
-        compact: z.boolean().default(false).describe('Use a shorter prompt body'),
+        compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
       },
     },
     async ({ compact }) => ({
@@ -241,7 +242,7 @@ async function startMCPServer() {
         role: 'user',
         content: {
           type: 'text',
-          text: buildResumeWorkPrompt(projectRoot, { compact }),
+          text: buildResumeWorkPrompt(projectRoot, { compact: String(compact).toLowerCase() === 'true' }),
         },
       }],
     })
@@ -287,9 +288,145 @@ async function startMCPServer() {
     })
   );
 
-  // Start the server
+  return server;
+}
+
+async function startMCPServer() {
+  const projectRoot = process.cwd();
+  const server = createMCPServer(projectRoot);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+}
+
+async function startMCPHttpServer(options = {}) {
+  const projectRoot = options.projectRoot || process.cwd();
+  const server = createMCPServer(projectRoot);
+
+  const host = options.host || '127.0.0.1';
+  const port = options.port ?? 3000;
+  const pathName = normalizeHttpPath(options.path || '/mcp');
+  const allowedOrigin = options.origin || '*';
+  const token = options.token || null;
+  const transports = new Map();
+
+  const httpServer = http.createServer(async (req, res) => {
+    try {
+      if (req.method === 'OPTIONS') {
+        applyCorsHeaders(res, allowedOrigin);
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      if (normalizeHttpPath(req.url || '/') !== pathName) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32601, message: 'Not found.' },
+          id: null,
+        }));
+        return;
+      }
+
+      if (token && !requestHasValidToken(req, token)) {
+        applyCorsHeaders(res, allowedOrigin);
+        res.writeHead(401, {
+          'content-type': 'application/json',
+          'www-authenticate': 'Bearer realm="mindswap"',
+        });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32001, message: 'Unauthorized.' },
+          id: null,
+        }));
+        return;
+      }
+
+      applyCorsHeaders(res, allowedOrigin);
+      const body = await readRequestBody(req);
+      let parsedBody;
+      if (body) {
+        try {
+          parsedBody = JSON.parse(body);
+        } catch {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32700, message: 'Invalid JSON body.' },
+            id: null,
+          }));
+          return;
+        }
+      }
+
+      const sessionId = req.headers['mcp-session-id'];
+      let transport = sessionId ? transports.get(String(sessionId)) : null;
+
+      if (!transport) {
+        const isInitialize = parsedBody && isInitializeRequest(parsedBody);
+        if (!sessionId && isInitialize) {
+          transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true,
+            onsessioninitialized: newSessionId => {
+              transports.set(String(newSessionId), transport);
+            },
+            onsessionclosed: closedSessionId => {
+              transports.delete(String(closedSessionId));
+            },
+          });
+          await server.connect(transport);
+        } else if (!sessionId) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Bad Request: no session ID provided.' },
+            id: null,
+          }));
+          return;
+        } else {
+          res.writeHead(404, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: { code: -32000, message: 'Unknown session.' },
+            id: null,
+          }));
+          return;
+        }
+      }
+
+      await transport.handleRequest(req, res, parsedBody);
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: err.message || 'Internal server error' },
+          id: null,
+        }));
+      }
+    }
+  });
+
+  await new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
+    httpServer.listen(port, host, resolve);
+  });
+
+  const address = httpServer.address();
+  const actualPort = typeof address === 'object' && address ? address.port : port;
+  const localUrl = `http://${host}:${actualPort}${pathName}`;
+
+  return {
+    server: httpServer,
+    url: localUrl,
+    close: async () => {
+      for (const transport of transports.values()) {
+        await transport.close().catch(() => {});
+      }
+      await new Promise(resolve => httpServer.close(() => resolve()));
+    },
+  };
 }
 
 // ═══════════════════════════════════════════════════
@@ -708,6 +845,44 @@ function buildJsonResource(uri, value) {
   };
 }
 
+function normalizeHttpPath(value) {
+  let pathname = String(value || '/').split('?')[0] || '/';
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
+  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.replace(/\/+$/, '');
+  return pathname || '/';
+}
+
+function applyCorsHeaders(res, origin) {
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, MCP-Session-Id, Last-Event-ID');
+  res.setHeader('Access-Control-Expose-Headers', 'MCP-Session-Id, MCP-Protocol-Version');
+}
+
+function requestHasValidToken(req, token) {
+  const auth = req.headers.authorization || req.headers.Authorization;
+  if (!auth) return false;
+  const [scheme, value] = String(auth).split(/\s+/, 2);
+  return /^bearer$/i.test(scheme) && value === token;
+}
+
+function isInitializeRequest(body) {
+  return Boolean(body && body.method === 'initialize');
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    if (req.method === 'GET' || req.method === 'DELETE' || req.method === 'HEAD') {
+      resolve('');
+      return;
+    }
+    const chunks = [];
+    req.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    req.on('error', reject);
+  });
+}
+
 function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}) {
   const contextText = renderContextText(projectRoot, compact ? 'task' : 'all', Boolean(compact));
   const lines = ['You are starting work in this repository.'];
@@ -1026,7 +1201,9 @@ function formatMemoryResult(result) {
 }
 
 module.exports = {
+  createMCPServer,
   startMCPServer,
+  startMCPHttpServer,
   manageMemory,
   searchContext,
   tokenize,

@@ -17,10 +17,9 @@ const { resume } = require('../src/resume');
 const { ask } = require('../src/ask');
 const { contracts } = require('../src/contracts');
 const { sync } = require('../src/sync');
-const { manageMemory } = require('../src/mcp-server');
+const { manageMemory, startMCPServer, startMCPHttpServer } = require('../src/mcp-server');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
-const { startMCPServer } = require('../src/mcp-server');
 const { doctor } = require('../src/doctor');
 
 const program = new Command();
@@ -377,6 +376,31 @@ program
   .action(async () => {
     try {
       await startMCPServer();
+    } catch (err) {
+      process.stderr.write(`mindswap MCP error: ${err.message}\n`);
+      process.exit(1);
+    }
+  });
+
+// ─── mcp-http ───
+program
+  .command('mcp-http')
+  .description('Start mindswap as a remote MCP server over Streamable HTTP.')
+  .option('--host <host>', 'Host to bind to', '127.0.0.1')
+  .option('--port <port>', 'Port to listen on', '3000')
+  .option('--path <path>', 'MCP endpoint path', '/mcp')
+  .option('--token <token>', 'Bearer token required for requests')
+  .option('--origin <origin>', 'CORS allow-origin header', '*')
+  .action(async (opts) => {
+    try {
+      const httpServer = await startMCPHttpServer({
+        host: opts.host,
+        port: opts.port,
+        path: opts.path,
+        token: opts.token,
+        origin: opts.origin,
+      });
+      process.stdout.write(`mindswap MCP HTTP listening on ${httpServer.url}\n`);
     } catch (err) {
       process.stderr.write(`mindswap MCP error: ${err.message}\n`);
       process.exit(1);
