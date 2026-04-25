@@ -58,6 +58,23 @@ exports.test_createProjectSnapshot_collects_repo_context_once = () => {
     assert.ok(snapshot.decisions.some(line => line.includes('reduce repeated reads')));
     assert.ok(Array.isArray(snapshot.changedFiles));
     assert.ok(Array.isArray(snapshot.recentCommits));
+
+    const nativeDescriptor = Object.getOwnPropertyDescriptor(snapshot, 'nativeSessions');
+    const importedDescriptor = Object.getOwnPropertyDescriptor(snapshot, 'importedSessions');
+    const guardrailDescriptor = Object.getOwnPropertyDescriptor(snapshot, 'guardrails');
+    assert.strictEqual(typeof nativeDescriptor.get, 'function');
+    assert.strictEqual(typeof importedDescriptor.get, 'function');
+    assert.strictEqual(typeof guardrailDescriptor.get, 'function');
+
+    const snapshotAgain = createProjectSnapshot(dir, { historyLimit: 5, recentCommitLimit: 5 });
+    assert.strictEqual(snapshotAgain, snapshot);
+
+    const state = JSON.parse(fs.readFileSync(path.join(dir, '.mindswap', 'state.json'), 'utf-8'));
+    state.current_task.next_steps.push('verify cache invalidation');
+    writeState(dir, state);
+
+    const snapshotAfterChange = createProjectSnapshot(dir, { historyLimit: 5, recentCommitLimit: 5 });
+    assert.notStrictEqual(snapshotAfterChange, snapshot);
   } finally {
     teardown();
   }

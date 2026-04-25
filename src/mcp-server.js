@@ -58,7 +58,8 @@ function createMCPServer(projectRoot) {
         .describe('Return token-optimized compact format (fewer tokens, same info)'),
     },
     async ({ focus, compact }) => {
-      return getContext(projectRoot, focus, compact);
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForContext(focus, compact));
+      return getContext(projectRoot, focus, compact, snapshot);
     }
   );
 
@@ -106,7 +107,8 @@ function createMCPServer(projectRoot) {
         .describe('Where to search: "all" searches everything, "decisions" only searches decision log, "history" only searches session history'),
     },
     async ({ query, type }) => {
-      return searchContext(projectRoot, query, type);
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForSearch(type));
+      return searchContext(projectRoot, query, type, snapshot);
     }
   );
 
@@ -217,15 +219,18 @@ function createMCPServer(projectRoot) {
         compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
       },
     },
-    async ({ goal, tool, compact }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildStartWorkPrompt(projectRoot, { goal, tool, compact: String(compact).toLowerCase() === 'true' }),
-        },
-      }],
-    })
+    async ({ goal, tool, compact }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('start', compact));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildStartWorkPrompt(projectRoot, { goal, tool, compact: String(compact).toLowerCase() === 'true' }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   server.registerPrompt(
@@ -237,15 +242,18 @@ function createMCPServer(projectRoot) {
         compact: z.string().optional().describe('Set to "true" for a shorter prompt body'),
       },
     },
-    async ({ compact }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildResumeWorkPrompt(projectRoot, { compact: String(compact).toLowerCase() === 'true' }),
-        },
-      }],
-    })
+    async ({ compact }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('resume', compact));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildResumeWorkPrompt(projectRoot, { compact: String(compact).toLowerCase() === 'true' }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   server.registerPrompt(
@@ -257,15 +265,18 @@ function createMCPServer(projectRoot) {
         audience: z.string().optional().describe('Optional recipient or tool name'),
       },
     },
-    async ({ audience }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildHandoffPrompt(projectRoot, { audience }),
-        },
-      }],
-    })
+    async ({ audience }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('handoff'));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildHandoffPrompt(projectRoot, { audience }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   server.registerPrompt(
@@ -277,15 +288,18 @@ function createMCPServer(projectRoot) {
         focus: z.string().optional().describe('Optional area to focus on, such as auth or database'),
       },
     },
-    async ({ focus }) => ({
-      messages: [{
-        role: 'user',
-        content: {
-          type: 'text',
-          text: buildConflictReviewPrompt(projectRoot, { focus }),
-        },
-      }],
-    })
+    async ({ focus }) => {
+      const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('conflicts'));
+      return {
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: buildConflictReviewPrompt(projectRoot, { focus }, snapshot),
+          },
+        }],
+      };
+    }
   );
 
   return server;
@@ -444,9 +458,9 @@ function getContext(projectRoot, focus, compact, snapshot = null) {
     };
   }
 
-  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, getSnapshotOptionsForContext(focus, compact));
   const state = currentSnapshot.state;
-  const liveData = snapshotToLiveData(currentSnapshot);
+  const liveData = snapshotToLiveData(currentSnapshot, getLiveDataOptionsForContext(focus, compact));
 
   if (compact) {
     const compactText = buildCompactNarrative(state, liveData);
@@ -790,16 +804,16 @@ function renderContextText(projectRoot, focus = 'all', compact = false, snapshot
 }
 
 function readStableResource(projectRoot, kind, snapshot = null) {
-  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, getSnapshotOptionsForResource(kind));
   const state = currentSnapshot.state;
-  const liveData = snapshotToLiveData(currentSnapshot);
+  const liveData = snapshotToLiveData(currentSnapshot, getLiveDataOptionsForResource(kind));
   const memory = currentSnapshot.memory;
   const handoffPath = path.join(projectRoot, 'HANDOFF.md');
   const handoffText = fs.existsSync(handoffPath) ? fs.readFileSync(handoffPath, 'utf-8') : renderContextText(projectRoot, 'all', false, currentSnapshot);
 
   switch (kind) {
     case 'context':
-      return buildTextResource('mindswap://context/current', renderContextText(projectRoot, 'all', false));
+      return buildTextResource('mindswap://context/current', renderContextText(projectRoot, 'all', false, currentSnapshot));
     case 'state':
       return buildJsonResource('mindswap://state/current', state);
     case 'decisions':
@@ -890,7 +904,7 @@ function buildStartWorkPrompt(projectRoot, { goal, tool, compact } = {}, snapsho
 }
 
 function buildResumeWorkPrompt(projectRoot, { compact } = {}, snapshot = null) {
-  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
+  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, getSnapshotOptionsForPrompt('resume', compact));
   const briefing = buildResumeBriefing(currentSnapshot.state, gatherResumeData(projectRoot, currentSnapshot), { compact });
   const lines = [
     'Resume this workstream from the current repo state.',
@@ -1052,19 +1066,20 @@ function manageMemory(projectRoot, opts = {}) {
 // ═══════════════════════════════════════════════════
 
 function gatherLiveData(projectRoot) {
-  return snapshotToLiveData(createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 }));
+  return snapshotToLiveData(createProjectSnapshot(projectRoot, getSnapshotOptionsForContext('all', false)), getLiveDataOptionsForContext('all', false));
 }
 
-function snapshotToLiveData(snapshot) {
+function snapshotToLiveData(snapshot, opts = {}) {
   return {
     branch: snapshot.branch,
     changedFiles: snapshot.changedFiles,
     recentCommits: snapshot.recentCommits,
     decisions: snapshot.decisions,
     history: snapshot.history,
-    nativeSessions: snapshot.nativeSessions,
+    nativeSessions: opts.includeNativeSessions === false ? [] : snapshot.nativeSessions,
     structuredMemory: snapshot.memory?.items || [],
-    guardrails: snapshot.guardrails,
+    importedSessions: opts.includeImportedSessions === false ? [] : snapshot.importedSessions,
+    guardrails: opts.includeGuardrails === false ? null : snapshot.guardrails,
   };
 }
 
@@ -1120,6 +1135,166 @@ function findLooseMatch(token, haystack) {
     token.replace(/tion$/, 't'),
   ].filter(Boolean);
   return variants.some(v => v !== token && v.length >= 3 && haystack.includes(v));
+}
+
+function getSnapshotOptionsForContext(focus, compact) {
+  const base = { historyLimit: 20, recentCommitLimit: 5 };
+  if (compact || focus === 'task') {
+    return {
+      ...base,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'recent') {
+    return {
+      ...base,
+      includeNativeSessions: true,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'decisions') {
+    return {
+      ...base,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: true,
+    };
+  }
+  return {
+    ...base,
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: true,
+  };
+}
+
+function getLiveDataOptionsForContext(focus, compact) {
+  if (compact || focus === 'task') {
+    return {
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'recent') {
+    return {
+      includeNativeSessions: true,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  if (focus === 'decisions') {
+    return {
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: true,
+    };
+  }
+  return {
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: true,
+  };
+}
+
+function getSnapshotOptionsForSearch(type) {
+  const base = { historyLimit: 50, recentCommitLimit: 5 };
+  if (type === 'decisions' || type === 'history') {
+    return {
+      ...base,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: false,
+    };
+  }
+  return {
+    ...base,
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: false,
+  };
+}
+
+function getSnapshotOptionsForResource(kind) {
+  const base = { historyLimit: 20, recentCommitLimit: 5 };
+  switch (kind) {
+    case 'context':
+    case 'handoff':
+      return {
+        ...base,
+        includeNativeSessions: true,
+        includeImportedSessions: true,
+        includeGuardrails: true,
+      };
+    case 'decisions':
+      return {
+        ...base,
+        includeNativeSessions: false,
+        includeImportedSessions: false,
+        includeGuardrails: false,
+      };
+    case 'state':
+    case 'memory':
+    default:
+      return {
+        ...base,
+        includeNativeSessions: false,
+        includeImportedSessions: false,
+        includeGuardrails: false,
+      };
+  }
+}
+
+function getLiveDataOptionsForResource(kind) {
+  switch (kind) {
+    case 'context':
+    case 'handoff':
+      return {
+        includeNativeSessions: true,
+        includeImportedSessions: true,
+        includeGuardrails: true,
+      };
+    default:
+      return {
+        includeNativeSessions: false,
+        includeImportedSessions: false,
+        includeGuardrails: false,
+      };
+  }
+}
+
+function getSnapshotOptionsForPrompt(kind, compact) {
+  if (kind === 'conflicts') {
+    return {
+      historyLimit: 20,
+      recentCommitLimit: 5,
+      includeNativeSessions: false,
+      includeImportedSessions: false,
+      includeGuardrails: true,
+    };
+  }
+  if (kind === 'resume') {
+    return {
+      historyLimit: 20,
+      recentCommitLimit: 5,
+      includeNativeSessions: true,
+      includeImportedSessions: true,
+      includeGuardrails: true,
+    };
+  }
+  if (kind === 'start') {
+    return getSnapshotOptionsForContext('all', String(compact).toLowerCase() === 'true');
+  }
+  return {
+    historyLimit: 20,
+    recentCommitLimit: 5,
+    includeNativeSessions: true,
+    includeImportedSessions: true,
+    includeGuardrails: true,
+  };
 }
 
 const QUERY_ALIASES = {
