@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir, getDefaultState, writeState, readState } = require('../src/state');
 const { appendMemoryItem } = require('../src/memory');
@@ -123,6 +124,23 @@ exports.test_ask_scope_all_can_recall_global_memory = async () => {
     } finally {
       console.log = originalLog;
     }
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_cli_search_returns_raw_context_matches = () => {
+  setup();
+  try {
+    const result = spawnSync('node', ['/Users/zopdev/mindswap/bin/mindswap.js', 'search', 'jwt', '--json'], {
+      cwd: dir,
+      encoding: 'utf-8',
+    });
+
+    assert.strictEqual(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.ok(payload.text.includes('JWT over sessions'));
+    assert.ok(payload.text.includes('result(s)'));
   } finally {
     teardown();
   }

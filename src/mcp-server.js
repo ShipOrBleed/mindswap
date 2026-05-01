@@ -107,10 +107,14 @@ function createMCPServer(projectRoot) {
       query: z.string().describe('What to search for (e.g., "auth", "database choice", "why Redis")'),
       type: z.enum(['all', 'decisions', 'history']).default('all')
         .describe('Where to search: "all" searches everything, "decisions" only searches decision log, "history" only searches session history'),
+      global: z.boolean().default(false)
+        .describe('Search global personal memory'),
+      scope: z.enum(['repo', 'global', 'all']).optional()
+        .describe('Search scope: repo, global, or all'),
     },
-    async ({ query, type }) => {
+    async ({ query, type, global, scope }) => {
       const snapshot = createProjectSnapshot(projectRoot, getSnapshotOptionsForSearch(type));
-      return searchContext(projectRoot, query, type, snapshot);
+      return searchContext(projectRoot, query, type, snapshot, { global, scope });
     }
   );
 
@@ -146,6 +150,10 @@ function createMCPServer(projectRoot) {
         .describe('Only include items created before this timestamp'),
       hard: z.boolean().default(false)
         .describe('Hard delete instead of archiving'),
+      global: z.boolean().default(false)
+        .describe('Use global personal memory scope'),
+      scope: z.enum(['repo', 'global', 'all']).optional()
+        .describe('Memory scope: repo, global, or all. Writes require repo or global.'),
       json: z.boolean().default(false)
         .describe('Return JSON instead of formatted text'),
     },

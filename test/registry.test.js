@@ -29,8 +29,12 @@ exports.test_buildRegistryManifest_includes_npm_and_metadata = () => {
     const manifest = buildRegistryManifest(packageJson);
     assert.strictEqual(manifest.name, packageJson.mcpName);
     assert.strictEqual(manifest.version, packageJson.version);
+    assert.ok(manifest.description.length <= 100);
     assert.strictEqual(manifest.packages[0].identifier, packageJson.name);
     assert.strictEqual(manifest.packages[0].transport.type, 'stdio');
+    assert.deepStrictEqual(manifest.packages[0].packageArguments, [
+      { type: 'positional', value: 'mcp' },
+    ]);
   } finally {
     teardown();
   }
@@ -71,7 +75,7 @@ exports.test_registry_cli_outputs_ready_status = () => {
       encoding: 'utf-8',
     });
     const payload = JSON.parse(output.trim());
-    assert.strictEqual(payload.package.mcpName, 'io.github.shiporbleed/mindswap');
+    assert.strictEqual(payload.package.mcpName, 'io.github.ShipOrBleed/mindswap');
     assert.ok(payload.manifest.name.includes('mindswap'));
   } finally {
     teardown();

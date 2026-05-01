@@ -1,7 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir } = require('../src/state');
 const {
@@ -141,6 +141,24 @@ exports.test_cli_memory_add_treats_free_text_as_message = () => {
     const payload = JSON.parse(output.trim());
     assert.strictEqual(payload.item.message, 'Waiting on auth review');
     assert.strictEqual(payload.item.type, 'blocker');
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_cli_json_output_does_not_emit_sqlite_warning = () => {
+  setup();
+  try {
+    execFileSync('node', ['/Users/zopdev/mindswap/bin/mindswap.js', 'init'], { cwd: dir, stdio: 'pipe' });
+    const result = spawnSync('node', ['/Users/zopdev/mindswap/bin/mindswap.js', 'memory', 'list', '--json'], {
+      cwd: dir,
+      encoding: 'utf-8',
+    });
+
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.strictEqual(result.stderr.trim(), '');
+    const payload = JSON.parse(result.stdout);
+    assert.strictEqual(payload.action, 'list');
   } finally {
     teardown();
   }

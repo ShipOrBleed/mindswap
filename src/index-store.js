@@ -6,12 +6,34 @@ const { createProjectSnapshot } = require('./project-snapshot');
 const { getGlobalProjectRoot, normalizeScope } = require('./scope');
 
 let sqlite = null;
-try {
-  sqlite = require('node:sqlite');
-} catch {}
+let sqliteLoaded = false;
+
+function getSqlite() {
+  if (sqliteLoaded) return sqlite;
+  sqliteLoaded = true;
+
+  const originalEmitWarning = process.emitWarning;
+  process.emitWarning = function emitWarningWithoutSqliteNoise(warning, ...args) {
+    const message = typeof warning === 'string' ? warning : warning?.message || '';
+    const type = typeof args[0] === 'string' ? args[0] : args[0]?.type;
+    if (type === 'ExperimentalWarning' && /SQLite/i.test(message)) return;
+    return originalEmitWarning.call(process, warning, ...args);
+  };
+
+  try {
+    sqlite = require('node:sqlite');
+  } catch {
+    sqlite = null;
+  } finally {
+    process.emitWarning = originalEmitWarning;
+  }
+
+  return sqlite;
+}
 
 function isSqliteAvailable() {
-  return Boolean(sqlite && sqlite.DatabaseSync);
+  const runtime = getSqlite();
+  return Boolean(runtime && runtime.DatabaseSync);
 }
 
 function getIndexDbPath(projectRoot) {
@@ -79,7 +101,7 @@ function searchIndexedEntries(projectRoot, query, opts = {}) {
 }
 
 function openIndexDb(dbPath) {
-  const { DatabaseSync } = sqlite;
+  const { DatabaseSync } = getSqlite();
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec(`
