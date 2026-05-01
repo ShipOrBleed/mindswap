@@ -19,6 +19,7 @@ function getDefaultMemory() {
 
 function ensureMemory(projectRoot) {
   const memoryPath = getMemoryPath(projectRoot);
+  fs.mkdirSync(path.dirname(memoryPath), { recursive: true });
   if (!fs.existsSync(memoryPath)) {
     fs.writeFileSync(memoryPath, JSON.stringify(getDefaultMemory(), null, 2), 'utf-8');
   }

@@ -26,7 +26,7 @@ function buildRegistryManifest(packageJson, options = {}) {
     $schema: 'https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json',
     name,
     title: options.title || humanizeName(packageJson.name),
-    description: options.description || packageJson.description || '',
+    description: options.description || 'Local-first AI context and memory server for cross-tool coding continuity.',
     repository: repositoryUrl ? {
       url: normalizeRepositoryUrl(repositoryUrl),
       source: 'github',
@@ -39,6 +39,10 @@ function buildRegistryManifest(packageJson, options = {}) {
       transport: {
         type: 'stdio',
       },
+      packageArguments: [{
+        type: 'positional',
+        value: 'mcp',
+      }],
     }],
   };
 

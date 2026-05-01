@@ -1,21 +1,27 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.shiporbleed/mindswap",
-  "title": "mindswap",
-  "description": "Your AI's black box recorder. Auto-track project state so any AI tool picks up where the last one stopped.",
+  "name": "io.github.ShipOrBleed/mindswap",
+  "title": "Mindswap",
+  "description": "Local-first AI context and memory server for cross-tool coding continuity.",
   "repository": {
     "url": "https://github.com/ShipOrBleed/mindswap.git",
     "source": "github"
   },
-  "version": "3.2.1",
+  "version": "3.2.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mindswap",
-      "version": "3.2.1",
+      "version": "3.2.3",
       "transport": {
         "type": "stdio"
-      }
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
     }
   ]
 }

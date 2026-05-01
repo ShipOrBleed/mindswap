@@ -17,11 +17,12 @@ const { resume } = require('../src/resume');
 const { ask } = require('../src/ask');
 const { contracts } = require('../src/contracts');
 const { sync } = require('../src/sync');
-const { manageMemory, startMCPServer, startMCPHttpServer } = require('../src/mcp-server');
+const { manageMemory, searchContext, startMCPServer, startMCPHttpServer } = require('../src/mcp-server');
 const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { doctor } = require('../src/doctor');
 const { buildRegistryReport, readRegistryManifest, writeRegistryManifest } = require('../src/registry');
+const { reindex } = require('../src/reindex');
 
 const program = new Command();
 
@@ -96,6 +97,8 @@ program
   .description('Log a memory item. Decisions warn on conflicts; blockers/questions/assumptions/resolutions are stored in structured memory.')
   .option('--tag <tag>', 'Tag (e.g., architecture, database, auth)')
   .option('--type <type>', 'Memory type: decision, blocker, assumption, question, resolution')
+  .option('--global', 'Write to global personal memory')
+  .option('--scope <scope>', 'Memory scope: repo or global')
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
@@ -118,6 +121,8 @@ program
   .option('--after <iso>', 'Created after timestamp')
   .option('--before <iso>', 'Created before timestamp')
   .option('--hard', 'Permanently delete instead of archiving')
+  .option('--global', 'Use global personal memory scope')
+  .option('--scope <scope>', 'Memory scope: repo, global, all')
   .option('--json', 'Output as JSON')
   .action(async (action, id, messageParts, opts) => {
     try {
@@ -137,6 +142,8 @@ program
         created_after: opts.after,
         created_before: opts.before,
         hard: opts.hard,
+        global: opts.global,
+        scope: opts.scope,
         json: opts.json,
       });
       if (result?.content?.length) {
@@ -311,8 +318,41 @@ program
 
 // ─── ask ───
 program
+  .command('search <query...>')
+  .description('Raw search over project memory, history, decisions, and optional global memory.')
+  .option('--type <type>', 'Search type: all, decisions, history', 'all')
+  .option('--global', 'Search global personal memory')
+  .option('--scope <scope>', 'Search scope: repo, global, all')
+  .option('--json', 'Output as JSON')
+  .action(async (queryParts, opts) => {
+    try {
+      const query = Array.isArray(queryParts) ? queryParts.join(' ').trim() : String(queryParts || '').trim();
+      const result = searchContext(process.cwd(), query, opts.type || 'all', null, {
+        global: opts.global,
+        scope: opts.scope,
+      });
+      const text = result?.content?.[0]?.text || '';
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify({
+          query,
+          type: opts.type || 'all',
+          scope: opts.scope || (opts.global ? 'global' : 'repo'),
+          text,
+        }, null, 2)}\n`);
+        return;
+      }
+      process.stdout.write(`${text}\n`);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+program
   .command('ask <question...>')
   .description('Answer a question from project memory using semantic search and cited sources.')
+  .option('--global', 'Search global personal memory')
+  .option('--scope <scope>', 'Search scope: repo, global, all')
   .option('--json', 'Output as JSON')
   .action(async (question, opts) => {
     try {
@@ -364,6 +404,22 @@ program
   .action(async (opts) => {
     try {
       await resume(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── reindex ───
+program
+  .command('reindex')
+  .description('Rebuild the local SQLite search index from repo and/or global memory.')
+  .option('--global', 'Reindex global personal memory only')
+  .option('--scope <scope>', 'Reindex scope: repo, global, all')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await reindex(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);
@@ -617,9 +673,11 @@ async function installMCP() {
   }
 
   console.log(chalk.bold.green(`\n✓ MCP server configured for ${configured} tool${configured > 1 ? 's' : ''}!\n`));
-  console.log(chalk.dim('  3 tools available to AI:'));
+  console.log(chalk.dim('  4 tools available to AI:'));
   console.log(chalk.white('    mindswap_get_context  ') + chalk.dim('— "What do I need to know?"'));
   console.log(chalk.white('    mindswap_save_context ') + chalk.dim('— "Here\'s what I did"'));
   console.log(chalk.white('    mindswap_search       ') + chalk.dim('— "What did we decide about X?"'));
+  console.log(chalk.white('    mindswap_memory       ') + chalk.dim('— "Track blockers/questions/assumptions"'));
+  console.log(chalk.dim('  Stable resources and workflow prompts are also exposed when supported by the client.'));
   console.log(chalk.dim('\n  Restart your AI tool to activate.\n'));
 }

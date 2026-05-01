@@ -1,8 +1,11 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir, writeState, getDefaultState, addToHistory } = require('../src/state');
+const { readMemory } = require('../src/memory');
+const { getIndexDbPath } = require('../src/index-store');
 const {
   searchContext,
   manageMemory,
@@ -14,10 +17,12 @@ const {
 } = require('../src/mcp-server');
 
 let dir;
+const globalDir = path.join(os.homedir(), '.mindswap');
 
 function setup() {
   dir = createTempProject('mcp-search-test');
   ensureDataDir(dir);
+  try { fs.rmSync(globalDir, { recursive: true, force: true }); } catch {}
 
   const state = getDefaultState();
   state.project = {
@@ -58,6 +63,7 @@ function setup() {
 
 function teardown() {
   cleanup(dir);
+  try { fs.rmSync(globalDir, { recursive: true, force: true }); } catch {}
 }
 
 exports.test_searchContext_semantic_ranking_finds_database_matches = () => {
@@ -80,6 +86,19 @@ exports.test_searchContext_semantic_ranking_finds_imported_auth_context = () => 
     assert.ok(text.includes('Current task: implement login flow'), 'should find semantically related task');
     assert.ok(text.includes('JWT over sessions'), 'should find auth decision');
     assert.ok(text.includes('Claude Code'), 'should search imported Claude context');
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_searchContext_prioritizes_task_and_blocker_results = () => {
+  setup();
+  try {
+    const result = searchContext(dir, 'login', 'all');
+    const lines = result.content[0].text.split('\n').filter(Boolean);
+    const firstHit = lines.find(line => line.startsWith('['));
+    assert.ok(firstHit.includes('[task]') || firstHit.includes('[blocker]'), 'should prioritize task or blocker results');
+    assert.ok(lines.some(line => line.includes('Current task: implement login flow') || line.includes('Current blocker: waiting on token refresh behavior')));
   } finally {
     teardown();
   }
@@ -142,6 +161,86 @@ exports.test_manageMemory_add_list_update_resolve_archive_delete = () => {
     });
     const delPayload = JSON.parse(del.content[0].text);
     assert.strictEqual(delPayload.deleted, true);
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_manageMemory_add_global_writes_to_home_scope = () => {
+  setup();
+  try {
+    const add = manageMemory(dir, {
+      action: 'add',
+      type: 'assumption',
+      tag: 'style',
+      message: 'Prefer concise answers across AI tools',
+      scope: 'global',
+      json: true,
+    });
+    const addPayload = JSON.parse(add.content[0].text);
+    assert.strictEqual(addPayload.item.type, 'assumption');
+
+    const memory = readMemory(os.homedir());
+    assert.ok(memory.items.some(item => item.message.includes('Prefer concise answers across AI tools')));
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_searchContext_scope_all_includes_global_memory = () => {
+  setup();
+  try {
+    manageMemory(dir, {
+      action: 'add',
+      type: 'assumption',
+      tag: 'style',
+      message: 'Prefer direct explanations across AI tools',
+      scope: 'global',
+      json: true,
+    });
+
+    const result = searchContext(dir, 'direct explanations', 'all', null, { scope: 'all' });
+    const text = result.content[0].text;
+    assert.ok(text.includes('global:assumption'), 'should label global memory results');
+    assert.ok(text.includes('Prefer direct explanations across AI tools'));
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_searchContext_prefers_sqlite_index_when_present = () => {
+  setup();
+  try {
+    // Create a synthetic indexed row that doesn't exist in repo files.
+    let sqlite;
+    try { sqlite = require('node:sqlite'); } catch {}
+    if (!sqlite?.DatabaseSync) return;
+
+    const dbPath = getIndexDbPath(dir);
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new sqlite.DatabaseSync(dbPath);
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS documents (
+          key TEXT PRIMARY KEY,
+          scope TEXT NOT NULL,
+          type TEXT NOT NULL,
+          source TEXT NOT NULL,
+          content TEXT NOT NULL
+        );
+      `);
+      db.prepare(`
+        INSERT OR REPLACE INTO documents (key, scope, type, source, content)
+        VALUES (?, ?, ?, ?, ?)
+      `).run('synthetic:key', 'repo', 'history', 'synthetic', 'SYNTHETIC INDEX ONLY HIT');
+    } finally {
+      db.close();
+    }
+
+    const result = searchContext(dir, 'SYNTHETIC', 'all', null, { scope: 'repo' });
+    const text = result.content[0].text;
+    assert.ok(text.includes('indexed result(s)'), 'should use indexed search when index exists');
+    assert.ok(text.includes('SYNTHETIC INDEX ONLY HIT'));
   } finally {
     teardown();
   }

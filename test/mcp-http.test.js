@@ -119,6 +119,11 @@ exports.test_mcp_http_serve_tools_prompts_resources_and_auth = async () => {
     });
     const toolsPayload = JSON.parse(tools.body);
     assert.ok(toolsPayload.result.tools.some(tool => tool.name === 'mindswap_memory'));
+    const searchTool = toolsPayload.result.tools.find(tool => tool.name === 'mindswap_search');
+    const memoryTool = toolsPayload.result.tools.find(tool => tool.name === 'mindswap_memory');
+    assert.deepStrictEqual(searchTool.inputSchema.properties.scope.enum, ['repo', 'global', 'all']);
+    assert.deepStrictEqual(memoryTool.inputSchema.properties.scope.enum, ['repo', 'global', 'all']);
+    assert.strictEqual(memoryTool.inputSchema.properties.global.type, 'boolean');
 
     const prompts = await requestJson(server.url, {
       method: 'POST',

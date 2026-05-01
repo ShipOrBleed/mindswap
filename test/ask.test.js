@@ -1,15 +1,20 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir, getDefaultState, writeState, readState } = require('../src/state');
+const { appendMemoryItem } = require('../src/memory');
 const { ask, parseSearchResults, buildAnswerPayload } = require('../src/ask');
 
 let dir;
+const globalDir = path.join(os.homedir(), '.mindswap');
 
 function setup() {
   dir = createTempProject('ask-test');
   ensureDataDir(dir);
+  try { fs.rmSync(globalDir, { recursive: true, force: true }); } catch {}
 
   const state = getDefaultState();
   state.project = {
@@ -42,6 +47,7 @@ function setup() {
 
 function teardown() {
   cleanup(dir);
+  try { fs.rmSync(globalDir, { recursive: true, force: true }); } catch {}
 }
 
 exports.test_parseSearchResults_extracts_ranked_items = () => {
@@ -92,6 +98,49 @@ exports.test_ask_outputs_text_and_json = async () => {
     } finally {
       console.log = originalLog;
     }
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_ask_scope_all_can_recall_global_memory = async () => {
+  setup();
+  try {
+    appendMemoryItem(os.homedir(), {
+      type: 'assumption',
+      tag: 'style',
+      message: 'Prefer direct explanations across tools',
+    });
+
+    const originalLog = console.log;
+    const lines = [];
+    console.log = (...args) => {
+      lines.push(args.join(' '));
+    };
+
+    try {
+      await ask(dir, 'what explanation style should we use?', { scope: 'all' });
+      assert.ok(lines.join('\n').includes('Prefer direct explanations across tools'));
+    } finally {
+      console.log = originalLog;
+    }
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_cli_search_returns_raw_context_matches = () => {
+  setup();
+  try {
+    const result = spawnSync('node', ['/Users/zopdev/mindswap/bin/mindswap.js', 'search', 'jwt', '--json'], {
+      cwd: dir,
+      encoding: 'utf-8',
+    });
+
+    assert.strictEqual(result.status, 0, result.stderr);
+    const payload = JSON.parse(result.stdout);
+    assert.ok(payload.text.includes('JWT over sessions'));
+    assert.ok(payload.text.includes('result(s)'));
   } finally {
     teardown();
   }
