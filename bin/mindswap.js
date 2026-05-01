@@ -22,6 +22,7 @@ const { save } = require('../src/save');
 const { pr } = require('../src/pr');
 const { doctor } = require('../src/doctor');
 const { buildRegistryReport, readRegistryManifest, writeRegistryManifest } = require('../src/registry');
+const { reindex } = require('../src/reindex');
 
 const program = new Command();
 
@@ -96,6 +97,8 @@ program
   .description('Log a memory item. Decisions warn on conflicts; blockers/questions/assumptions/resolutions are stored in structured memory.')
   .option('--tag <tag>', 'Tag (e.g., architecture, database, auth)')
   .option('--type <type>', 'Memory type: decision, blocker, assumption, question, resolution')
+  .option('--global', 'Write to global personal memory')
+  .option('--scope <scope>', 'Memory scope: repo or global')
   .action(async (message, opts) => {
     try {
       await log(process.cwd(), message, opts);
@@ -118,6 +121,8 @@ program
   .option('--after <iso>', 'Created after timestamp')
   .option('--before <iso>', 'Created before timestamp')
   .option('--hard', 'Permanently delete instead of archiving')
+  .option('--global', 'Use global personal memory scope')
+  .option('--scope <scope>', 'Memory scope: repo, global, all')
   .option('--json', 'Output as JSON')
   .action(async (action, id, messageParts, opts) => {
     try {
@@ -137,6 +142,8 @@ program
         created_after: opts.after,
         created_before: opts.before,
         hard: opts.hard,
+        global: opts.global,
+        scope: opts.scope,
         json: opts.json,
       });
       if (result?.content?.length) {
@@ -313,6 +320,8 @@ program
 program
   .command('ask <question...>')
   .description('Answer a question from project memory using semantic search and cited sources.')
+  .option('--global', 'Search global personal memory')
+  .option('--scope <scope>', 'Search scope: repo, global, all')
   .option('--json', 'Output as JSON')
   .action(async (question, opts) => {
     try {
@@ -364,6 +373,22 @@ program
   .action(async (opts) => {
     try {
       await resume(process.cwd(), opts);
+    } catch (err) {
+      console.error(chalk.red('Error:'), err.message);
+      process.exit(1);
+    }
+  });
+
+// ─── reindex ───
+program
+  .command('reindex')
+  .description('Rebuild the local SQLite search index from repo and/or global memory.')
+  .option('--global', 'Reindex global personal memory only')
+  .option('--scope <scope>', 'Reindex scope: repo, global, all')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    try {
+      await reindex(process.cwd(), opts);
     } catch (err) {
       console.error(chalk.red('Error:'), err.message);
       process.exit(1);

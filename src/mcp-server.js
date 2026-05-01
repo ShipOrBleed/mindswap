@@ -31,6 +31,8 @@ const { parseNativeSessions, getSessionSummary } = require('./session-parser');
 const { analyzeGuardrails, buildGuardrailSection } = require('./guardrails');
 const { buildResumeBriefing, gatherResumeData } = require('./resume');
 const { createProjectSnapshot, readDecisionLines } = require('./project-snapshot');
+const { normalizeScope, resolveMemoryRoots, getGlobalProjectRoot, canUseRepoScope } = require('./scope');
+const { isSqliteAvailable, getIndexDbPath, searchIndexedEntries } = require('./index-store');
 
 /**
  * Start the mindswap MCP server.
@@ -680,21 +682,48 @@ function saveContext(projectRoot, { summary, decisions, assumptions, questions, 
   };
 }
 
-function searchContext(projectRoot, query, type, snapshot = null) {
+function searchContext(projectRoot, query, type, snapshot = null, opts = {}) {
   const dataDir = getDataDir(projectRoot);
-  if (!fs.existsSync(dataDir)) {
+  const scope = normalizeScope(opts);
+  if (!fs.existsSync(dataDir) && scope === 'repo') {
     return {
       content: [{ type: 'text', text: 'mindswap not initialized. Run `npx mindswap init` first.' }],
     };
   }
 
-  const currentSnapshot = snapshot || createProjectSnapshot(projectRoot, { historyLimit: 50, recentCommitLimit: 5 });
+  const preferIndex = opts.index !== false && type === 'all' && isSqliteAvailable();
+  if (preferIndex) {
+    const indexPath = getIndexDbPath(projectRoot);
+    if (fs.existsSync(indexPath)) {
+      const hits = searchIndexedEntries(projectRoot, query, { scope, limit: 15 });
+      if (hits.length > 0) {
+        const formatted = hits
+          .map(hit => {
+            const label = formatIndexHitType(hit);
+            const score = Math.max(1, Number(hit.score) || 1);
+            return `[${label}] (${score}) ${hit.content}`;
+          })
+          .join('\n');
+
+        return {
+          content: [{
+            type: 'text',
+            text: `Found ${hits.length} indexed result(s) for "${query}":\n\n${formatted}`,
+          }],
+        };
+      }
+    }
+  }
+
+  const currentSnapshot = fs.existsSync(dataDir)
+    ? (snapshot || createProjectSnapshot(projectRoot, { historyLimit: 50, recentCommitLimit: 5 }))
+    : null;
   const queryTokens = tokenize(query);
   const results = [];
   const seen = new Set();
 
   // Search decisions
-  if (type === 'all' || type === 'decisions') {
+  if (currentSnapshot && (type === 'all' || type === 'decisions')) {
     for (const line of currentSnapshot.decisions) {
       addScoredResult(results, seen, {
         type: 'decision',
@@ -706,7 +735,7 @@ function searchContext(projectRoot, query, type, snapshot = null) {
   }
 
   // Search history
-  if (type === 'all' || type === 'history') {
+  if (currentSnapshot && (type === 'all' || type === 'history')) {
     for (const entry of currentSnapshot.history) {
       addScoredResult(results, seen, {
         type: 'history',
@@ -718,7 +747,7 @@ function searchContext(projectRoot, query, type, snapshot = null) {
   }
 
   // Search current state
-  if (type === 'all') {
+  if (currentSnapshot && type === 'all') {
     for (const item of listMemoryItemsFromSnapshot(currentSnapshot, { limit: 50 })) {
       addScoredResult(results, seen, {
         type: `memory:${item.type}`,
@@ -755,7 +784,7 @@ function searchContext(projectRoot, query, type, snapshot = null) {
     }
   }
 
-  if (type === 'all') {
+  if (currentSnapshot && type === 'all') {
     for (const session of currentSnapshot.nativeSessions) {
       const combined = [
         session.summary || '',
@@ -785,6 +814,17 @@ function searchContext(projectRoot, query, type, snapshot = null) {
     }
   }
 
+  if (type === 'all' && (scope === 'global' || scope === 'all')) {
+    for (const item of listMemoryItems(getGlobalProjectRoot(), { limit: 50 })) {
+      addScoredResult(results, seen, {
+        type: `global:${item.type}`,
+        content: createSearchSnippet(`${item.type}: ${item.message}`, queryTokens),
+        source: 'global-memory',
+        key: `global:${item.id || `${item.type}:${item.tag}:${item.message}`}`,
+      }, queryTokens, item.status === 'open' ? 1.15 : 0.9, `${item.type} ${item.tag} ${item.status} ${item.message}`, item.status === 'open' ? 2 : 1);
+    }
+  }
+
   if (results.length === 0) {
     return {
       content: [{
@@ -804,6 +844,18 @@ function searchContext(projectRoot, query, type, snapshot = null) {
       text: `Found ${results.length} result(s) for "${query}":\n\n${formatted}`,
     }],
   };
+}
+
+function formatIndexHitType(hit) {
+  const scope = hit.scope === 'global' ? 'global' : 'repo';
+  const raw = String(hit.type || '').trim();
+  if (!raw) return scope;
+  if (scope === 'global') {
+    // Match existing global labels: global:<memory-type>
+    if (raw.startsWith('memory:')) return `global:${raw.slice('memory:'.length)}`;
+    return `global:${raw}`;
+  }
+  return raw;
 }
 
 function renderContextText(projectRoot, focus = 'all', compact = false, snapshot = null) {
@@ -962,8 +1014,13 @@ function buildConflictReviewPrompt(projectRoot, { focus } = {}, snapshot = null)
 }
 
 function manageMemory(projectRoot, opts = {}) {
-  const dataDir = getDataDir(projectRoot);
-  if (!fs.existsSync(dataDir)) {
+  const scope = normalizeScope(opts);
+  if (scope === 'all' && !['list', 'get'].includes(String(opts.action || '').toLowerCase())) {
+    throw new Error('memory writes require repo or global scope');
+  }
+
+  const repoReady = canUseRepoScope(projectRoot);
+  if (!repoReady && scope === 'repo') {
     return {
       content: [{ type: 'text', text: 'mindswap not initialized. Run `npx mindswap init` first.' }],
     };
@@ -971,11 +1028,16 @@ function manageMemory(projectRoot, opts = {}) {
 
   const action = String(opts.action || '').toLowerCase();
   const now = new Date().toISOString();
+  const roots = resolveMemoryRoots(projectRoot, opts).filter(root => {
+    if (root === projectRoot) return repoReady;
+    return true;
+  });
+  const primaryRoot = roots[0];
 
   let result = null;
   switch (action) {
     case 'list': {
-      const items = listMemoryItems(projectRoot, {
+      const items = roots.flatMap(root => listMemoryItems(root, {
         type: opts.type,
         status: opts.status,
         author: opts.author,
@@ -984,19 +1046,24 @@ function manageMemory(projectRoot, opts = {}) {
         created_before: opts.before,
         includeArchived: opts.status === 'archived' || opts.hard === true,
         limit: opts.limit || 20,
-      });
+      }).map(item => ({ ...item, scope: root === getGlobalProjectRoot() ? 'global' : 'repo' })));
       result = { action, count: items.length, items };
       break;
     }
     case 'get': {
       if (!opts.id) throw new Error('memory get requires an id');
-      const item = getMemoryItemById(projectRoot, opts.id);
+      const item = roots
+        .map(root => {
+          const found = getMemoryItemById(root, opts.id);
+          return found ? { ...found, scope: root === getGlobalProjectRoot() ? 'global' : 'repo' } : null;
+        })
+        .find(Boolean);
       result = item ? { action, item } : { action, item: null };
       break;
     }
     case 'add': {
       if (!opts.message) throw new Error('memory add requires a message');
-      const item = appendMemoryItem(projectRoot, {
+      const item = appendMemoryItem(primaryRoot, {
         type: opts.type || 'decision',
         tag: opts.tag || 'general',
         message: opts.message,
@@ -1005,12 +1072,13 @@ function manageMemory(projectRoot, opts = {}) {
         source: opts.source || 'cli',
         created_at: now,
       });
-      result = { action, item };
+      result = { action, item: { ...item, scope: primaryRoot === getGlobalProjectRoot() ? 'global' : 'repo' } };
       break;
     }
     case 'update': {
       if (!opts.id) throw new Error('memory update requires an id');
-      const item = updateMemoryItem(projectRoot, opts.id, {
+      const targetRoot = roots.find(root => getMemoryItemById(root, opts.id)) || primaryRoot;
+      const item = updateMemoryItem(targetRoot, opts.id, {
         type: opts.type,
         tag: opts.tag,
         message: opts.message,
@@ -1020,12 +1088,13 @@ function manageMemory(projectRoot, opts = {}) {
         updated_at: now,
       });
       if (!item) throw new Error(`memory item not found: ${opts.id}`);
-      result = { action, item };
+      result = { action, item: { ...item, scope: targetRoot === getGlobalProjectRoot() ? 'global' : 'repo' } };
       break;
     }
     case 'resolve': {
       if (!opts.id) throw new Error('memory resolve requires an id');
-      const item = resolveMemoryItem(projectRoot, opts.id, {
+      const targetRoot = roots.find(root => getMemoryItemById(root, opts.id)) || primaryRoot;
+      const item = resolveMemoryItem(targetRoot, opts.id, {
         message: opts.message,
         tag: opts.tag,
         author: opts.author,
@@ -1033,12 +1102,13 @@ function manageMemory(projectRoot, opts = {}) {
         resolved_at: now,
       });
       if (!item) throw new Error(`memory item not found: ${opts.id}`);
-      result = { action, item };
+      result = { action, item: { ...item, scope: targetRoot === getGlobalProjectRoot() ? 'global' : 'repo' } };
       break;
     }
     case 'archive': {
       if (!opts.id) throw new Error('memory archive requires an id');
-      const item = archiveMemoryItem(projectRoot, opts.id, {
+      const targetRoot = roots.find(root => getMemoryItemById(root, opts.id)) || primaryRoot;
+      const item = archiveMemoryItem(targetRoot, opts.id, {
         message: opts.message,
         tag: opts.tag,
         author: opts.author,
@@ -1046,14 +1116,19 @@ function manageMemory(projectRoot, opts = {}) {
         archived_at: now,
       });
       if (!item) throw new Error(`memory item not found: ${opts.id}`);
-      result = { action, item };
+      result = { action, item: { ...item, scope: targetRoot === getGlobalProjectRoot() ? 'global' : 'repo' } };
       break;
     }
     case 'delete': {
       if (!opts.id) throw new Error('memory delete requires an id');
-      const item = deleteMemoryItem(projectRoot, opts.id, { hard: Boolean(opts.hard), archived_at: now });
+      const targetRoot = roots.find(root => getMemoryItemById(root, opts.id)) || primaryRoot;
+      const item = deleteMemoryItem(targetRoot, opts.id, { hard: Boolean(opts.hard), archived_at: now });
       if (!item) throw new Error(`memory item not found: ${opts.id}`);
-      result = { action, item, deleted: Boolean(opts.hard) };
+      result = {
+        action,
+        item: { ...item, scope: targetRoot === getGlobalProjectRoot() ? 'global' : 'repo' },
+        deleted: Boolean(opts.hard),
+      };
       break;
     }
     default:

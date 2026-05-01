@@ -19,7 +19,7 @@ async function ask(projectRoot, question, opts = {}) {
 
   const snapshot = createProjectSnapshot(projectRoot, { historyLimit: 20, recentCommitLimit: 5 });
   const state = snapshot.state || readState(projectRoot);
-  const search = searchContext(projectRoot, query, 'all', snapshot);
+  const search = searchContext(projectRoot, query, 'all', snapshot, opts);
   const results = parseSearchResults(search?.content?.[0]?.text || '');
   const payload = buildAnswerPayload(query, results, state);
 

@@ -1,15 +1,19 @@
 const assert = require('assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { createTempProject, cleanup } = require('./helpers');
 const { ensureDataDir, getDefaultState, writeState, readState } = require('../src/state');
+const { appendMemoryItem } = require('../src/memory');
 const { ask, parseSearchResults, buildAnswerPayload } = require('../src/ask');
 
 let dir;
+const globalDir = path.join(os.homedir(), '.mindswap');
 
 function setup() {
   dir = createTempProject('ask-test');
   ensureDataDir(dir);
+  try { fs.rmSync(globalDir, { recursive: true, force: true }); } catch {}
 
   const state = getDefaultState();
   state.project = {
@@ -42,6 +46,7 @@ function setup() {
 
 function teardown() {
   cleanup(dir);
+  try { fs.rmSync(globalDir, { recursive: true, force: true }); } catch {}
 }
 
 exports.test_parseSearchResults_extracts_ranked_items = () => {
@@ -89,6 +94,32 @@ exports.test_ask_outputs_text_and_json = async () => {
       const parsed = JSON.parse(lines.join('\n'));
       assert.ok(parsed.answer.includes('JWT'));
       assert.ok(Array.isArray(parsed.sources));
+    } finally {
+      console.log = originalLog;
+    }
+  } finally {
+    teardown();
+  }
+};
+
+exports.test_ask_scope_all_can_recall_global_memory = async () => {
+  setup();
+  try {
+    appendMemoryItem(os.homedir(), {
+      type: 'assumption',
+      tag: 'style',
+      message: 'Prefer direct explanations across tools',
+    });
+
+    const originalLog = console.log;
+    const lines = [];
+    console.log = (...args) => {
+      lines.push(args.join(' '));
+    };
+
+    try {
+      await ask(dir, 'what explanation style should we use?', { scope: 'all' });
+      assert.ok(lines.join('\n').includes('Prefer direct explanations across tools'));
     } finally {
       console.log = originalLog;
     }

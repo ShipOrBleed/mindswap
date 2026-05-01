@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/mindswap.svg)](https://www.npmjs.com/package/mindswap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Keep project context in the repo so AI tools can continue work without re-explaining the same codebase.
+Keep project context and personal AI memory local so tools can continue work without re-explaining the same context.
 
 ## Why it exists
 
@@ -33,8 +33,26 @@ npx mindswap ask "Why did we choose JWT?"
 - `resume` to start with a clean briefing
 - `ask` to search project memory with citations
 - `memory` to manage blockers, assumptions, questions, and resolutions
+- `--global` memory and ask scope for personal cross-tool memory under `~/.mindswap/`
+- `reindex` to rebuild the local SQLite search index from your file-based memory
 - `sync` to share continuity state across machines
 - `mcp` and `mcp-http` to expose the same context to AI clients
+
+## Global personal memory
+
+MindSwap now supports two local memory scopes:
+
+- repo memory in `<repo>/.mindswap/`
+- personal memory in `~/.mindswap/`
+
+Use global memory when a preference or learning should follow you across projects and tools.
+
+```bash
+npx mindswap log "Prefer concise explanations" --type assumption --global
+npx mindswap memory list --scope all
+npx mindswap ask "What explanation style should we use?" --scope all
+npx mindswap reindex --scope all
+```
 
 ## MCP and AI tools
 
