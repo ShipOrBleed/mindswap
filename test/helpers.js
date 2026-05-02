@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 function createTempProject(name = 'ms-test') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -29,4 +29,19 @@ function cleanup(dir) {
   } catch {}
 }
 
-module.exports = { createTempProject, cleanup };
+function runCli(args, opts = {}) {
+  const {
+    cwd,
+    env,
+    timeout = 15000,
+  } = opts;
+
+  return spawnSync('node', ['/Users/zopdev/mindswap/bin/mindswap.js', ...args], {
+    cwd,
+    env: env ? { ...process.env, ...env } : process.env,
+    encoding: 'utf-8',
+    timeout,
+  });
+}
+
+module.exports = { createTempProject, cleanup, runCli };

@@ -30,7 +30,11 @@ async function sync(projectRoot, opts = {}) {
 
   if (mode === 'push') {
     if (report.conflict && !opts.force) {
-      printSyncReport(report);
+      if (opts.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        printSyncReport(report);
+      }
       process.exitCode = 1;
       return;
     }
@@ -48,22 +52,33 @@ async function sync(projectRoot, opts = {}) {
     report.status = 'in-sync';
     report.conflict = false;
     report.diverged = false;
-    console.log(chalk.bold('\n⚡ Sync\n'));
-    console.log(chalk.green(`  Pushed to ${hubPath}`));
-    console.log(chalk.dim(`  Status: ${report.status}`));
-    console.log();
-    if (opts.json) console.log(JSON.stringify(report, null, 2));
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(chalk.bold('\n⚡ Sync\n'));
+      console.log(chalk.green(`  Pushed to ${hubPath}`));
+      console.log(chalk.dim(`  Status: ${report.status}`));
+      console.log();
+    }
     return;
   }
 
   if (mode === 'pull') {
     if (!hub) {
-      console.log(chalk.yellow(`\nNo sync hub found at ${hubPath}\n`));
+      if (opts.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log(chalk.yellow(`\nNo sync hub found at ${hubPath}\n`));
+      }
       process.exitCode = 1;
       return;
     }
     if (report.conflict && !opts.force) {
-      printSyncReport(report);
+      if (opts.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        printSyncReport(report);
+      }
       process.exitCode = 1;
       return;
     }
@@ -82,11 +97,14 @@ async function sync(projectRoot, opts = {}) {
     report.status = 'in-sync';
     report.conflict = false;
     report.diverged = false;
-    console.log(chalk.bold('\n⚡ Sync\n'));
-    console.log(chalk.green(`  Pulled from ${hubPath}`));
-    console.log(chalk.dim(`  Status: ${report.status}`));
-    console.log();
-    if (opts.json) console.log(JSON.stringify(report, null, 2));
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(chalk.bold('\n⚡ Sync\n'));
+      console.log(chalk.green(`  Pulled from ${hubPath}`));
+      console.log(chalk.dim(`  Status: ${report.status}`));
+      console.log();
+    }
   }
 }
 

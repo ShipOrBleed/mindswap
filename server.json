@@ -7,12 +7,12 @@
     "url": "https://github.com/ShipOrBleed/mindswap.git",
     "source": "github"
   },
-  "version": "3.2.3",
+  "version": "3.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mindswap",
-      "version": "3.2.3",
+      "version": "3.3.0",
       "transport": {
         "type": "stdio"
       },
